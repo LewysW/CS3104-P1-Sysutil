@@ -22,13 +22,14 @@ int myStrLen(char* str);
 void myStrCpy(char* dest, const char* src, size_t n);
 void writeErrorMsg(char* fileName);
 void getFilePerm(struct stat meta_data, char* filePerm);
-void writeFilePerm(char* filePerm);
-int isDir(struct stat meta_data);
-void writeIsDir(int isDir);
-void writeFileName(char* fileName);
+char getDirChar(struct stat meta_data);
 nlink_t getLinks(struct stat meta_data);
-void writeLinks(char* links);
 char* myitoa(int num, char* str);
+void writeWrapper(char* str);
+uid_t getUID(struct stat meta_data);
+gid_t getGID(struct stat meta_data);
+off_t getSize(struct stat meta_data);
+time_t getAccessTime(struct stat meta_data);
 
 int main(int argc, char** argv)
 {
@@ -44,18 +45,34 @@ int main(int argc, char** argv)
         //If stat returned successfully then get meta data to write,
         //otherwise write error message.
         if (!status) {
-            int dir = isDir(meta_data);
-            writeIsDir(dir);
+            char dirChar[2];
+            dirChar[0] = getDirChar(meta_data);
+            dirChar[1] = '\0';
+            writeWrapper(dirChar);
 
-            char filePerm[NUM_PERMISSIONS];
+            char filePerm[NUM_PERMISSIONS + 1];
             getFilePerm(meta_data, filePerm);
-            writeFilePerm(filePerm);
+            writeWrapper(filePerm);
 
             char* links = NULL;
             links = myitoa(getLinks(meta_data), links);
-            writeLinks(links);
+            writeWrapper(links);
 
-            writeFileName(fileName);
+            char* uid = NULL;
+            uid =  myitoa(getUID(meta_data), uid);
+            writeWrapper(uid);
+
+            char* gid = NULL;
+            gid =  myitoa(getUID(meta_data), gid);
+            writeWrapper(gid);
+
+            char* size = NULL;
+            size = myitoa(getSize(meta_data), size);
+            writeWrapper(size);
+
+            getAccessTime(meta_data);
+
+            writeWrapper(fileName);
         } else {
             writeErrorMsg(fileName);
         }
@@ -95,16 +112,10 @@ void writeErrorMsg(char* fileName) {
     write(WRITE_SYSCALL, error, myStrLen(error)); //TODO replace with my write wrapper
 }
 
-//Returns whether a file is a directory or not.
+//Returns a particular character depending on whether a file is a directory or not.
 //Takes a stat struct as a parameter
-int isDir(struct stat meta_data) {
-    return S_ISDIR(meta_data.st_mode);
-}
-
-//Writes a 'd' if a file is a directory or a '-' if it is not.
-void writeIsDir(int isDir) {
-    char id = (isDir) ? 'd' : '-';
-    write(WRITE_SYSCALL, &id, sizeof(char)); //TODO replace with my write wrapper
+char getDirChar(struct stat meta_data) {
+    return S_ISDIR(meta_data.st_mode) ? 'd' : '-';
 }
 
 //Gets the permission for user, group and others using the bitmasks provided by stat
@@ -123,13 +134,14 @@ void getFilePerm(struct stat meta_data, char* filePerm) {
     filePerm[6] = (S_IRUSR & perm) ? 'r' : '-';
     filePerm[7] = (S_IRUSR & perm) ? 'w' : '-';
     filePerm[8] = (S_IRUSR & perm) ? 'x' : '-';
+    filePerm[9] = '\0';
 }
 //END CITATION
 
-//Writes the file permissions for the user, group, and others.
-//Takes a list of file permission characters as input.
-void writeFilePerm(char* filePerm) {
-    for (int i = 0; i < NUM_PERMISSIONS; i++) write(WRITE_SYSCALL, filePerm + i, sizeof(char)); //TODO replace with my write wrapper
+//Wrapper for the 'write' syste call
+//Takes a string as an argument and calculates the length using myStrLen
+void writeWrapper(char* str) {
+    write(WRITE_SYSCALL, str, myStrLen(str));
 }
 
 //Returns the number of hard links a file has.
@@ -138,14 +150,22 @@ nlink_t getLinks(struct stat meta_data) {
     return meta_data.st_nlink;
 }
 
-void writeLinks(char* links) {
-    write(WRITE_SYSCALL, links, myStrLen(links));
+uid_t getUID(struct stat meta_data) {
+    return meta_data.st_uid;
 }
 
-//Writes the name of a file to stdout.
-//Takes the fileName as a parameter.
-void writeFileName(char* fileName) {
-    write(WRITE_SYSCALL, fileName, myStrLen(fileName));
+gid_t getGID(struct stat meta_data) {
+    return meta_data.st_gid;
+}
+
+off_t getSize(struct stat meta_data) {
+    return meta_data.st_size;
+}
+
+time_t getAccessTime(struct stat meta_data) {
+    time_t rawTime = meta_data.st_atim.tv_sec;
+    struct tm* time_struct;
+    time_struct = localtime(&rawTime);
 }
 
 //Converts an integer to a character array that can be output using write().
