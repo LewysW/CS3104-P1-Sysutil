@@ -14,6 +14,14 @@
 #define NUM_PERMISSIONS 9
 #define MAX_INT_DIGITS 10
 #define ASCII_CONVERSION_INT 48
+#define MONTH_LENGTH 3
+#define DAY_LENGTH 2
+#define HOUR_LENGTH 2
+#define MINUTE_LENGTH 2
+#define SINGLE_DIGIT 9
+static const char *MONTH_STRING[] = {
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+};
 
 int mystat();
 int mywrite();
@@ -30,6 +38,9 @@ uid_t getUID(struct stat meta_data);
 gid_t getGID(struct stat meta_data);
 off_t getSize(struct stat meta_data);
 time_t getAccessTime(struct stat meta_data);
+char* monthToStr(int month, char* monthStr);
+char* formatDateTime(char* month, char* day, char* hour, char* min);
+char* metaDataToString(struct stat meta_data);
 
 int main(int argc, char** argv)
 {
@@ -45,34 +56,7 @@ int main(int argc, char** argv)
         //If stat returned successfully then get meta data to write,
         //otherwise write error message.
         if (!status) {
-            char dirChar[2];
-            dirChar[0] = getDirChar(meta_data);
-            dirChar[1] = '\0';
-            writeWrapper(dirChar);
-
-            char filePerm[NUM_PERMISSIONS + 1];
-            getFilePerm(meta_data, filePerm);
-            writeWrapper(filePerm);
-
-            char* links = NULL;
-            links = myitoa(getLinks(meta_data), links);
-            writeWrapper(links);
-
-            char* uid = NULL;
-            uid =  myitoa(getUID(meta_data), uid);
-            writeWrapper(uid);
-
-            char* gid = NULL;
-            gid =  myitoa(getUID(meta_data), gid);
-            writeWrapper(gid);
-
-            char* size = NULL;
-            size = myitoa(getSize(meta_data), size);
-            writeWrapper(size);
-
-            getAccessTime(meta_data);
-
-            writeWrapper(fileName);
+            metaDataToString(meta_data);
         } else {
             writeErrorMsg(fileName);
         }
@@ -80,6 +64,32 @@ int main(int argc, char** argv)
 
 
     return 0;
+}
+
+char* metaDataToString(struct stat meta_data) {
+    char dirChar[2];
+    char filePerm[NUM_PERMISSIONS + 1];
+    char* links = NULL;
+    char* uid = NULL;
+    char* gid = NULL;
+    char* size = NULL;
+    char* accessTime = NULL;
+
+    dirChar[0] = getDirChar(meta_data);
+    dirChar[1] = '\0';
+
+    getFilePerm(meta_data, filePerm);
+
+    links = myitoa(getLinks(meta_data), links);
+
+    uid = myitoa(getUID(meta_data), uid);
+
+    gid = myitoa(getUID(meta_data), gid);
+
+    size = myitoa(getSize(meta_data), size);
+
+    accessTime = getAccessTime(meta_data);
+
 }
 
 //Custom implementation of strlen() function.
@@ -162,10 +172,72 @@ off_t getSize(struct stat meta_data) {
     return meta_data.st_size;
 }
 
+//TODO - change time printed to correct time - ALWAYS PRINTS CURRENT TIME
 time_t getAccessTime(struct stat meta_data) {
-    time_t rawTime = meta_data.st_atim.tv_sec;
-    struct tm* time_struct;
-    time_struct = localtime(&rawTime);
+    struct tm* timeStruct;
+    char month[MONTH_LENGTH + 1];
+    char day[DAY_LENGTH + 1];
+    char hour[HOUR_LENGTH + 1];
+    char min[MINUTE_LENGTH + 1];
+
+    time(&meta_data.st_ctime);
+
+    timeStruct = localtime(&meta_data.st_ctime);
+
+    //Gets month string by index and copies to month variable.
+    myStrCpy(month, monthToStr(timeStruct->tm_mon, month), MONTH_LENGTH);
+
+    //Tests whether the day is a single or double digit and then copies the correct number of bytes
+    myStrCpy(day, myitoa(timeStruct->tm_mday, day), myitoa(timeStruct->tm_mday, day) > SINGLE_DIGIT ? DAY_LENGTH : DAY_LENGTH - 1);
+
+    //Converts hours to string and copies this value
+    myStrCpy(hour, myitoa(timeStruct->tm_hour, hour), HOUR_LENGTH);
+    if (myStrLen(hour) == 1) {
+        hour[1] = hour[0];
+        hour[0] = '0';
+        hour[2] = '\0';
+    }
+
+    //Converts minutes to string and copies this value
+    myStrCpy(min, myitoa(timeStruct->tm_min, min), MINUTE_LENGTH);
+    if (myStrLen(min) == 1) {
+        min[1] = min[0];
+        min[0] = '0';
+        min[2] = '\0';
+    }
+
+    return (formatDateTime(month, day, hour, min));
+
+}
+
+//Formats the date and time with spaces and a colon.
+//Takes the strings month, day, hour and min as parameters.
+char* formatDateTime(char* month, char* day, char* hour, char* min) {
+    int size = myStrLen(month) + myStrLen(day) + myStrLen(hour) + myStrLen(min) + 3;
+    char dateTime[size];
+    int index = 0;
+    myStrCpy(dateTime, month, myStrLen(month));
+    index += myStrLen(month);
+    myStrCpy(dateTime + index, " ", sizeof(char));
+    index++;
+    myStrCpy(dateTime + index, day, myStrLen(day));
+    index += myStrLen(day);
+    myStrCpy(dateTime + index, " ", sizeof(char));
+    index++;
+    myStrCpy(dateTime + index, hour, myStrLen(hour));
+    index += myStrLen(hour);
+    myStrCpy(dateTime + index, ":", sizeof(char));
+    index++;
+    myStrCpy(dateTime + index, min, myStrLen(min));
+    index += myStrLen(min);
+    dateTime[index] = '\0';
+
+    return dateTime;
+}
+
+char* monthToStr(int month, char* monthStr) {
+    myStrCpy(monthStr, MONTH_STRING[month], MONTH_LENGTH + 1);
+    return monthStr;
 }
 
 //Converts an integer to a character array that can be output using write().
