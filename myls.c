@@ -77,6 +77,7 @@ char* metaDataToString(struct stat meta_data) {
 
     dirChar[0] = getDirChar(meta_data);
     dirChar[1] = '\0';
+    writeWrapper(dirChar);
 
     getFilePerm(meta_data, filePerm);
     writeWrapper(filePerm);
