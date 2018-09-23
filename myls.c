@@ -37,9 +37,9 @@ void writeWrapper(char* str);
 uid_t getUID(struct stat meta_data);
 gid_t getGID(struct stat meta_data);
 off_t getSize(struct stat meta_data);
-time_t getAccessTime(struct stat meta_data);
+time_t getAccessTime(struct stat meta_data, char* dateTime);
 char* monthToStr(int month, char* monthStr);
-char* formatDateTime(char* month, char* day, char* hour, char* min);
+char* formatDateTime(char* month, char* day, char* hour, char* min, char* dateTime);
 char* metaDataToString(struct stat meta_data);
 
 int main(int argc, char** argv)
@@ -53,7 +53,7 @@ int main(int argc, char** argv)
         myStrCpy(fileName, argv[1], size);
         int status = stat(fileName, &meta_data);
 
-        //If stat returned successfully then get meta data to write,
+        //If stat returned successfully then get convert meta data to string and write,
         //otherwise write error message.
         if (!status) {
             metaDataToString(meta_data);
@@ -79,16 +79,22 @@ char* metaDataToString(struct stat meta_data) {
     dirChar[1] = '\0';
 
     getFilePerm(meta_data, filePerm);
+    writeWrapper(filePerm);
 
     links = myitoa(getLinks(meta_data), links);
+    writeWrapper(links);
 
     uid = myitoa(getUID(meta_data), uid);
+    writeWrapper(uid);
 
     gid = myitoa(getUID(meta_data), gid);
+    writeWrapper(gid);
 
     size = myitoa(getSize(meta_data), size);
+    writeWrapper(size);
 
-    accessTime = getAccessTime(meta_data);
+    accessTime = getAccessTime(meta_data, accessTime);
+    writeWrapper(accessTime);
 
 }
 
@@ -173,7 +179,7 @@ off_t getSize(struct stat meta_data) {
 }
 
 //TODO - change time printed to correct time - ALWAYS PRINTS CURRENT TIME
-time_t getAccessTime(struct stat meta_data) {
+time_t getAccessTime(struct stat meta_data, char* dateTime) {
     struct tm* timeStruct;
     char month[MONTH_LENGTH + 1];
     char day[DAY_LENGTH + 1];
@@ -206,13 +212,13 @@ time_t getAccessTime(struct stat meta_data) {
         min[2] = '\0';
     }
 
-    return (formatDateTime(month, day, hour, min));
+    return (formatDateTime(month, day, hour, min, dateTime));
 
 }
 
 //Formats the date and time with spaces and a colon.
 //Takes the strings month, day, hour and min as parameters.
-char* formatDateTime(char* month, char* day, char* hour, char* min) {
+char* formatDateTime(char* month, char* day, char* hour, char* min, char* date) {
     int size = myStrLen(month) + myStrLen(day) + myStrLen(hour) + myStrLen(min) + 3;
     char dateTime[size];
     int index = 0;
@@ -232,7 +238,8 @@ char* formatDateTime(char* month, char* day, char* hour, char* min) {
     index += myStrLen(min);
     dateTime[index] = '\0';
 
-    return dateTime;
+    date = dateTime;
+    return date;
 }
 
 char* monthToStr(int month, char* monthStr) {
