@@ -18,7 +18,11 @@
 #define DAY_LENGTH 2
 #define HOUR_LENGTH 2
 #define MINUTE_LENGTH 2
-#define SINGLE_DIGIT 9
+#define YEAR_LENGTH 4
+#define STARTING_YEAR 1900
+#define SINGLE_DIGIT 1
+#define NUM_META_DATA
+
 static const char *MONTH_STRING[] = {
     "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
 };
@@ -37,10 +41,10 @@ void writeWrapper(char* str);
 uid_t getUID(struct stat meta_data);
 gid_t getGID(struct stat meta_data);
 off_t getSize(struct stat meta_data);
-time_t getAccessTime(struct stat meta_data, char* dateTime);
+char* getAccessTime(struct stat meta_data, char* dateTime);
 char* monthToStr(int month, char* monthStr);
-char* formatDateTime(char* month, char* day, char* hour, char* min, char* dateTime);
-char* metaDataToString(struct stat meta_data);
+char* formatDateTime(char* year, char* month, char* day, char* hour, char* min, char* dateTime);
+char* metaDataToString(struct stat meta_data, char* metaDataStr);
 
 int main(int argc, char** argv)
 {
@@ -56,7 +60,9 @@ int main(int argc, char** argv)
         //If stat returned successfully then get convert meta data to string and write,
         //otherwise write error message.
         if (!status) {
-            metaDataToString(meta_data);
+            char* metaDataStr = NULL;
+            metaDataStr = metaDataToString(meta_data, metaDataStr);
+            writeWrapper(metaDataStr);
         } else {
             writeErrorMsg(fileName);
         }
@@ -66,7 +72,7 @@ int main(int argc, char** argv)
     return 0;
 }
 
-char* metaDataToString(struct stat meta_data) {
+char* metaDataToString(struct stat meta_data, char* metaDataStr) {
     char dirChar[2];
     char filePerm[NUM_PERMISSIONS + 1];
     char* links = NULL;
@@ -77,26 +83,33 @@ char* metaDataToString(struct stat meta_data) {
 
     dirChar[0] = getDirChar(meta_data);
     dirChar[1] = '\0';
-    writeWrapper(dirChar);
-
     getFilePerm(meta_data, filePerm);
-    writeWrapper(filePerm);
-
     links = myitoa(getLinks(meta_data), links);
-    writeWrapper(links);
-
     uid = myitoa(getUID(meta_data), uid);
-    writeWrapper(uid);
-
     gid = myitoa(getUID(meta_data), gid);
-    writeWrapper(gid);
-
     size = myitoa(getSize(meta_data), size);
-    writeWrapper(size);
-
     accessTime = getAccessTime(meta_data, accessTime);
-    writeWrapper(accessTime);
 
+    int length = myStrLen(dirChar) + myStrLen(filePerm) + myStrLen(links) + myStrLen(uid)
+                + myStrLen(gid) + myStrLen(size) + myStrLen(accessTime);
+
+    int index = 0;
+
+    char metaStr[length + 1];
+    metaStr[0] = '\0'; //Effectively sets length of metaStr to 0
+
+    myStrCpy(metaStr + myStrLen(metaStr), dirChar, myStrLen(dirChar));
+    myStrCpy(metaStr + myStrLen(metaStr), filePerm, myStrLen(filePerm));
+    myStrCpy(metaStr + myStrLen(metaStr), links, myStrLen(links));
+    myStrCpy(metaStr + myStrLen(metaStr), uid, myStrLen(uid));
+    myStrCpy(metaStr + myStrLen(metaStr), gid, myStrLen(gid));
+    myStrCpy(metaStr + myStrLen(metaStr), size, myStrLen(size));
+    myStrCpy(metaStr + myStrLen(metaStr), accessTime, myStrLen(accessTime));
+    printf("%d\n", myStrLen(metaStr));
+    printf("%s\n", metaStr);
+    metaStr[31] = '\0';
+    metaDataStr = metaStr;
+    return metaDataStr;
 }
 
 //Custom implementation of strlen() function.
@@ -179,50 +192,69 @@ off_t getSize(struct stat meta_data) {
     return meta_data.st_size;
 }
 
-//TODO - change time printed to correct time - ALWAYS PRINTS CURRENT TIME
-time_t getAccessTime(struct stat meta_data, char* dateTime) {
-    struct tm* timeStruct;
+char* getAccessTime(struct stat meta_data, char* dateTime) {
+    struct tm* fileTime;
+    struct tm* currentTime;
     char month[MONTH_LENGTH + 1];
     char day[DAY_LENGTH + 1];
     char hour[HOUR_LENGTH + 1];
     char min[MINUTE_LENGTH + 1];
+    char year[YEAR_LENGTH + 1];
+    int currentYear;
+    int fileYear;
 
-    time(&meta_data.st_ctime);
+    //Gets the current time and year
+    time_t current;
+    current = time(NULL);
+    currentTime = localtime(&current);
+    currentYear = currentTime->tm_year + STARTING_YEAR;
 
-    timeStruct = localtime(&meta_data.st_ctime);
+    //Gets the time and year of the last modification to the file
+    fileTime = localtime(&meta_data.st_mtime);
+    fileYear = fileTime->tm_year + STARTING_YEAR;
+
+    //Conditional statement to check which date/time formatting to use based on year
+    if (fileYear == currentYear) {
+        //Nulls out year if the year is the current year as it won't be used
+        year[0] = '\0';
+
+        //Converts hours to string and copies this value
+        myStrCpy(hour, myitoa(fileTime->tm_hour, hour), HOUR_LENGTH);
+        if (myStrLen(hour) == SINGLE_DIGIT) {
+            hour[1] = hour[0];
+            hour[0] = '0';
+        }
+
+        //Converts minutes to string and copies this value
+        myStrCpy(min, myitoa(fileTime->tm_min, min), MINUTE_LENGTH);
+        if (myStrLen(min) == SINGLE_DIGIT) {
+            min[1] = min[0];
+            min[0] = '0';
+        }
+    } else {
+        //Converts the year integer to string and copies it to the year array
+        myStrCpy(year, myitoa(fileYear, year), YEAR_LENGTH);
+    }
 
     //Gets month string by index and copies to month variable.
-    myStrCpy(month, monthToStr(timeStruct->tm_mon, month), MONTH_LENGTH);
+    myStrCpy(month, monthToStr(fileTime->tm_mon, month), MONTH_LENGTH);
 
     //Tests whether the day is a single or double digit and then copies the correct number of bytes
-    myStrCpy(day, myitoa(timeStruct->tm_mday, day), myitoa(timeStruct->tm_mday, day) > SINGLE_DIGIT ? DAY_LENGTH : DAY_LENGTH - 1);
+    myStrCpy(day, myitoa(fileTime->tm_mday, day), myStrLen(myitoa(fileTime->tm_mday, day)) > SINGLE_DIGIT ? DAY_LENGTH : DAY_LENGTH - 1);
 
-    //Converts hours to string and copies this value
-    myStrCpy(hour, myitoa(timeStruct->tm_hour, hour), HOUR_LENGTH);
-    if (myStrLen(hour) == 1) {
-        hour[1] = hour[0];
-        hour[0] = '0';
-        hour[2] = '\0';
-    }
-
-    //Converts minutes to string and copies this value
-    myStrCpy(min, myitoa(timeStruct->tm_min, min), MINUTE_LENGTH);
-    if (myStrLen(min) == 1) {
-        min[1] = min[0];
-        min[0] = '0';
-        min[2] = '\0';
-    }
-
-    return (formatDateTime(month, day, hour, min, dateTime));
+    return (formatDateTime(year, month, day, hour, min, dateTime));
 
 }
 
 //Formats the date and time with spaces and a colon.
-//Takes the strings month, day, hour and min as parameters.
-char* formatDateTime(char* month, char* day, char* hour, char* min, char* date) {
-    int size = myStrLen(month) + myStrLen(day) + myStrLen(hour) + myStrLen(min) + 3;
+//Takes the strings year, month, day, hour and min as parameters.
+char* formatDateTime(char* year, char* month, char* day, char* hour, char* min, char* date) {
+    int size = myStrLen(month) + myStrLen(day);
+    size += (year[0] == '\0') ? (myStrLen(hour) + myStrLen(min) + 3) : (myStrLen(year) + 2);
     char dateTime[size];
     int index = 0;
+
+    //Appends month and day to date string.
     myStrCpy(dateTime, month, myStrLen(month));
     index += myStrLen(month);
     myStrCpy(dateTime + index, " ", sizeof(char));
@@ -231,14 +263,25 @@ char* formatDateTime(char* month, char* day, char* hour, char* min, char* date) 
     index += myStrLen(day);
     myStrCpy(dateTime + index, " ", sizeof(char));
     index++;
-    myStrCpy(dateTime + index, hour, myStrLen(hour));
-    index += myStrLen(hour);
-    myStrCpy(dateTime + index, ":", sizeof(char));
-    index++;
-    myStrCpy(dateTime + index, min, myStrLen(min));
-    index += myStrLen(min);
-    dateTime[index] = '\0';
 
+
+    //If hour and min are not provided, appends year to date string
+    //otherwise appends hours and minutes
+    if (year[0] == '\0') {
+        myStrCpy(dateTime + index, hour, myStrLen(hour));
+        index += myStrLen(hour);
+        myStrCpy(dateTime + index, ":", sizeof(char));
+        index++;
+        myStrCpy(dateTime + index, min, myStrLen(min));
+        index += myStrLen(min);
+    } else {
+        myStrCpy(dateTime + index, year, myStrLen(year));
+        index += myStrLen(year);
+        myStrCpy(dateTime + index, " ", sizeof(char));
+        index++;
+    }
+
+    dateTime[index] = '\0';
     date = dateTime;
     return date;
 }
