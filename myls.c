@@ -34,17 +34,16 @@ int myStrLen(char* str);
 void myStrCpy(char* dest, const char* src, size_t n);
 void writeErrorMsg(char* fileName);
 void getFilePerm(struct stat meta_data, char* filePerm);
-char getDirChar(struct stat meta_data);
+void getDirChar(struct stat meta_data, char* dir);
 nlink_t getLinks(struct stat meta_data);
-char* myitoa(int num, char* str);
+void myitoa(int num, char* str);
 void writeWrapper(char* str);
 uid_t getUID(struct stat meta_data);
 gid_t getGID(struct stat meta_data);
 off_t getSize(struct stat meta_data);
-char* getAccessTime(struct stat meta_data, char* dateTime);
+void printAccessTime(struct stat meta_data);
 char* monthToStr(int month, char* monthStr);
-char* formatDateTime(char* year, char* month, char* day, char* hour, char* min, char* dateTime);
-char* metaDataToString(struct stat meta_data, char* metaDataStr);
+void printMetaData(struct stat meta_data);
 
 int main(int argc, char** argv)
 {
@@ -60,9 +59,7 @@ int main(int argc, char** argv)
         //If stat returned successfully then get convert meta data to string and write,
         //otherwise write error message.
         if (!status) {
-            char* metaDataStr = NULL;
-            metaDataStr = metaDataToString(meta_data, metaDataStr);
-            writeWrapper(metaDataStr);
+            printMetaData(meta_data);
         } else {
             writeErrorMsg(fileName);
         }
@@ -72,44 +69,23 @@ int main(int argc, char** argv)
     return 0;
 }
 
-char* metaDataToString(struct stat meta_data, char* metaDataStr) {
-    char dirChar[2];
-    char filePerm[NUM_PERMISSIONS + 1];
-    char* links = NULL;
-    char* uid = NULL;
-    char* gid = NULL;
-    char* size = NULL;
-    char* accessTime = NULL;
+void printMetaData(struct stat meta_data) {
+    char tempStr[MAX_INT_DIGITS];
 
-    dirChar[0] = getDirChar(meta_data);
-    dirChar[1] = '\0';
-    getFilePerm(meta_data, filePerm);
-    links = myitoa(getLinks(meta_data), links);
-    uid = myitoa(getUID(meta_data), uid);
-    gid = myitoa(getUID(meta_data), gid);
-    size = myitoa(getSize(meta_data), size);
-    accessTime = getAccessTime(meta_data, accessTime);
+    getDirChar(meta_data, tempStr);
+    writeWrapper(tempStr);
+    getFilePerm(meta_data, tempStr);
+    writeWrapper(tempStr);
+    myitoa(meta_data.st_nlink, tempStr);
+    writeWrapper(tempStr);
+    myitoa(meta_data.st_uid, tempStr);
+    writeWrapper(tempStr);
+    myitoa(meta_data.st_gid, tempStr);
+    writeWrapper(tempStr);
+    myitoa(meta_data.st_size, tempStr);
+    writeWrapper(tempStr);
 
-    int length = myStrLen(dirChar) + myStrLen(filePerm) + myStrLen(links) + myStrLen(uid)
-                + myStrLen(gid) + myStrLen(size) + myStrLen(accessTime);
-
-    int index = 0;
-
-    char metaStr[length + 1];
-    metaStr[0] = '\0'; //Effectively sets length of metaStr to 0
-
-    myStrCpy(metaStr + myStrLen(metaStr), dirChar, myStrLen(dirChar));
-    myStrCpy(metaStr + myStrLen(metaStr), filePerm, myStrLen(filePerm));
-    myStrCpy(metaStr + myStrLen(metaStr), links, myStrLen(links));
-    myStrCpy(metaStr + myStrLen(metaStr), uid, myStrLen(uid));
-    myStrCpy(metaStr + myStrLen(metaStr), gid, myStrLen(gid));
-    myStrCpy(metaStr + myStrLen(metaStr), size, myStrLen(size));
-    myStrCpy(metaStr + myStrLen(metaStr), accessTime, myStrLen(accessTime));
-    printf("%d\n", myStrLen(metaStr));
-    printf("%s\n", metaStr);
-    metaStr[31] = '\0';
-    metaDataStr = metaStr;
-    return metaDataStr;
+    printAccessTime(meta_data);
 }
 
 //Custom implementation of strlen() function.
@@ -144,8 +120,9 @@ void writeErrorMsg(char* fileName) {
 
 //Returns a particular character depending on whether a file is a directory or not.
 //Takes a stat struct as a parameter
-char getDirChar(struct stat meta_data) {
-    return S_ISDIR(meta_data.st_mode) ? 'd' : '-';
+void getDirChar(struct stat meta_data, char* dir) {
+    dir[0] = S_ISDIR(meta_data.st_mode) ? 'd' : '-';
+    dir[1] = '\0';
 }
 
 //Gets the permission for user, group and others using the bitmasks provided by stat
@@ -174,34 +151,12 @@ void writeWrapper(char* str) {
     write(WRITE_SYSCALL, str, myStrLen(str));
 }
 
-//Returns the number of hard links a file has.
-//Takes the file meta data as a parameter.
-nlink_t getLinks(struct stat meta_data) {
-    return meta_data.st_nlink;
-}
-
-uid_t getUID(struct stat meta_data) {
-    return meta_data.st_uid;
-}
-
-gid_t getGID(struct stat meta_data) {
-    return meta_data.st_gid;
-}
-
-off_t getSize(struct stat meta_data) {
-    return meta_data.st_size;
-}
-
-char* getAccessTime(struct stat meta_data, char* dateTime) {
+void printAccessTime(struct stat meta_data) {
     struct tm* fileTime;
     struct tm* currentTime;
-    char month[MONTH_LENGTH + 1];
-    char day[DAY_LENGTH + 1];
-    char hour[HOUR_LENGTH + 1];
-    char min[MINUTE_LENGTH + 1];
-    char year[YEAR_LENGTH + 1];
     int currentYear;
     int fileYear;
+    char tempStr[MAX_INT_DIGITS];
 
     //Gets the current time and year
     time_t current;
@@ -213,77 +168,16 @@ char* getAccessTime(struct stat meta_data, char* dateTime) {
     fileTime = localtime(&meta_data.st_mtime);
     fileYear = fileTime->tm_year + STARTING_YEAR;
 
-    //Conditional statement to check which date/time formatting to use based on year
-    if (fileYear == currentYear) {
-        //Nulls out year if the year is the current year as it won't be used
-        year[0] = '\0';
+    //Converts month to a string word and writes it
+    writeWrapper(monthToStr(fileTime->tm_mon, tempStr));
 
-        //Converts hours to string and copies this value
-        myStrCpy(hour, myitoa(fileTime->tm_hour, hour), HOUR_LENGTH);
-        if (myStrLen(hour) == SINGLE_DIGIT) {
-            hour[1] = hour[0];
-            hour[0] = '0';
-        }
+    //Gets day and prints it to terminal
+    myitoa(fileTime->tm_mday, tempStr);
+    writeWrapper(tempStr);
 
-        //Converts minutes to string and copies this value
-        myStrCpy(min, myitoa(fileTime->tm_min, min), MINUTE_LENGTH);
-        if (myStrLen(min) == SINGLE_DIGIT) {
-            min[1] = min[0];
-            min[0] = '0';
-        }
-    } else {
-        //Converts the year integer to string and copies it to the year array
-        myStrCpy(year, myitoa(fileYear, year), YEAR_LENGTH);
-    }
-
-    //Gets month string by index and copies to month variable.
-    myStrCpy(month, monthToStr(fileTime->tm_mon, month), MONTH_LENGTH);
-
-    //Tests whether the day is a single or double digit and then copies the correct number of bytes
-    myStrCpy(day, myitoa(fileTime->tm_mday, day), myStrLen(myitoa(fileTime->tm_mday, day)) > SINGLE_DIGIT ? DAY_LENGTH : DAY_LENGTH - 1);
-
-    return (formatDateTime(year, month, day, hour, min, dateTime));
-
-}
-
-//Formats the date and time with spaces and a colon.
-//Takes the strings year, month, day, hour and min as parameters.
-char* formatDateTime(char* year, char* month, char* day, char* hour, char* min, char* date) {
-    int size = myStrLen(month) + myStrLen(day);
-    size += (year[0] == '\0') ? (myStrLen(hour) + myStrLen(min) + 3) : (myStrLen(year) + 2);
-    char dateTime[size];
-    int index = 0;
-
-    //Appends month and day to date string.
-    myStrCpy(dateTime, month, myStrLen(month));
-    index += myStrLen(month);
-    myStrCpy(dateTime + index, " ", sizeof(char));
-    index++;
-    myStrCpy(dateTime + index, day, myStrLen(day));
-    index += myStrLen(day);
-    myStrCpy(dateTime + index, " ", sizeof(char));
-    index++;
-
-
-    //If hour and min are not provided, appends year to date string
-    //otherwise appends hours and minutes
-    if (year[0] == '\0') {
-        myStrCpy(dateTime + index, hour, myStrLen(hour));
-        index += myStrLen(hour);
-        myStrCpy(dateTime + index, ":", sizeof(char));
-        index++;
-        myStrCpy(dateTime + index, min, myStrLen(min));
-        index += myStrLen(min);
-    } else {
-        myStrCpy(dateTime + index, year, myStrLen(year));
-        index += myStrLen(year);
-        myStrCpy(dateTime + index, " ", sizeof(char));
-        index++;
-    }
-
-    dateTime[index] = '\0';
-    date = dateTime;
-    return date;
+    //TODO - add hours and minutes back in and use conditional to decide between year and hours/mins
+    myitoa(fileYear, tempStr);
+    writeWrapper(tempStr);
 }
 
 char* monthToStr(int month, char* monthStr) {
@@ -293,7 +187,7 @@ char* monthToStr(int month, char* monthStr) {
 
 //Converts an integer to a character array that can be output using write().
 //Takes an integer as a parameter.
-char* myitoa(int num, char* str) {
+void myitoa(int num, char* str) {
     char intStr[MAX_INT_DIGITS];
     int i = 0;
 
@@ -304,14 +198,10 @@ char* myitoa(int num, char* str) {
     }
     intStr[i] = '\0';
 
-    char charStr[i + 1];
-
     //Converts digits to ASCII and reorders in new array
     for (int j = 0, k = i - 1; j < i; j++, k--) {
-        charStr[k] = intStr[j] + ASCII_CONVERSION_INT;
+        str[k] = intStr[j] + ASCII_CONVERSION_INT;
     }
 
-    charStr[i] = '\0';
-    str = charStr;
-    return str;
+    str[i] = '\0';
 }
