@@ -20,8 +20,8 @@
 #define MINUTE_LENGTH 2
 #define YEAR_LENGTH 4
 #define STARTING_YEAR 1900
-#define SINGLE_DIGIT 1
-#define NUM_META_DATA
+#define SINGLE_DIGIT 9
+#define TIME_LENGTH 5
 
 static const char *MONTH_STRING[] = {
     "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
@@ -76,16 +76,22 @@ void printMetaData(struct stat meta_data) {
     writeWrapper(tempStr);
     getFilePerm(meta_data, tempStr);
     writeWrapper(tempStr);
+
+    writeWrapper(" ");
     myitoa(meta_data.st_nlink, tempStr);
     writeWrapper(tempStr);
+    writeWrapper(" ");
     myitoa(meta_data.st_uid, tempStr);
     writeWrapper(tempStr);
+    writeWrapper(" ");
     myitoa(meta_data.st_gid, tempStr);
     writeWrapper(tempStr);
+    writeWrapper(" ");
     myitoa(meta_data.st_size, tempStr);
     writeWrapper(tempStr);
-
+    writeWrapper(" ");
     printAccessTime(meta_data);
+    writeWrapper("\n");
 }
 
 //Custom implementation of strlen() function.
@@ -130,17 +136,15 @@ void getDirChar(struct stat meta_data, char* dir) {
 //BEGIN CITATION: Learned how to use the masks from this page
 //- https://stackoverflow.com/questions/8812959/how-to-read-linux-file-permission-programmatically-in-c-c
 void getFilePerm(struct stat meta_data, char* filePerm) {
-    mode_t perm = meta_data.st_mode;
-
-    filePerm[0] = (S_IRUSR & perm) ? 'r' : '-';
-    filePerm[1] = (S_IRUSR & perm) ? 'w' : '-';
-    filePerm[2] = (S_IRUSR & perm) ? 'x' : '-';
-    filePerm[3] = (S_IRUSR & perm) ? 'r' : '-';
-    filePerm[4] = (S_IRUSR & perm) ? 'w' : '-';
-    filePerm[5] = (S_IRUSR & perm) ? 'x' : '-';
-    filePerm[6] = (S_IRUSR & perm) ? 'r' : '-';
-    filePerm[7] = (S_IRUSR & perm) ? 'w' : '-';
-    filePerm[8] = (S_IRUSR & perm) ? 'x' : '-';
+    filePerm[0] = (S_IRUSR & meta_data.st_mode) ? 'r' : '-';
+    filePerm[1] = (S_IWUSR & meta_data.st_mode) ? 'w' : '-';
+    filePerm[2] = (S_IXUSR & meta_data.st_mode) ? 'x' : '-';
+    filePerm[3] = (S_IRGRP & meta_data.st_mode) ? 'r' : '-';
+    filePerm[4] = (S_IWGRP & meta_data.st_mode) ? 'w' : '-';
+    filePerm[5] = (S_IXGRP & meta_data.st_mode) ? 'x' : '-';
+    filePerm[6] = (S_IROTH & meta_data.st_mode) ? 'r' : '-';
+    filePerm[7] = (S_IWOTH & meta_data.st_mode) ? 'w' : '-';
+    filePerm[8] = (S_IXOTH & meta_data.st_mode) ? 'x' : '-';
     filePerm[9] = '\0';
 }
 //END CITATION
@@ -171,13 +175,39 @@ void printAccessTime(struct stat meta_data) {
     //Converts month to a string word and writes it
     writeWrapper(monthToStr(fileTime->tm_mon, tempStr));
 
+    writeWrapper(" ");
+
     //Gets day and prints it to terminal
     myitoa(fileTime->tm_mday, tempStr);
     writeWrapper(tempStr);
 
-    //TODO - add hours and minutes back in and use conditional to decide between year and hours/mins
-    myitoa(fileYear, tempStr);
-    writeWrapper(tempStr);
+    writeWrapper(" ");
+
+    if (fileYear == currentYear) {
+        //Sets initial hour value to 00
+        tempStr[0] = '0';
+        tempStr[1] = '0';
+        tempStr[2] = '\0';
+
+        //Decides how many hour digits to copy based on size of hour time.
+        //Then prints hour time and a ':'
+        myitoa(fileTime->tm_hour, (fileTime->tm_hour > SINGLE_DIGIT ? tempStr : tempStr + 1));
+        writeWrapper(tempStr);
+        writeWrapper(":");
+
+        //Sets initial minute value to 00
+        tempStr[0] = '0';
+        tempStr[1] = '0';
+
+        //Decides how many minute digits to copy based on size of minute time.
+        //Then prints minute time
+        myitoa(fileTime->tm_min, (fileTime->tm_min > SINGLE_DIGIT ? tempStr : tempStr + 1));
+        writeWrapper(tempStr);
+    } else {
+        myitoa(fileYear, tempStr);
+        writeWrapper(tempStr);
+    }
+
 }
 
 char* monthToStr(int month, char* monthStr) {
