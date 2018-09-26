@@ -9,6 +9,7 @@
 
 // A complete list of linux system call numbers can be found in: /usr/include/asm/unistd_64.h
 #define WRITE_SYSCALL 1
+#define GETDENTS_SYSCALL 78
 //Maximum directory name size in linux + length of error message
 #define MAX_ERROR_SIZE 4145
 #define NUM_PERMISSIONS 9
@@ -22,6 +23,7 @@
 #define STARTING_YEAR 1900
 #define SINGLE_DIGIT 9
 #define TIME_LENGTH 5
+#define BUF_SIZE 1024
 
 static const char *MONTH_STRING[] = {
     "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
@@ -35,12 +37,8 @@ void myStrCpy(char* dest, const char* src, size_t n);
 void writeErrorMsg(char* fileName);
 void getFilePerm(struct stat meta_data, char* filePerm);
 void getDirChar(struct stat meta_data, char* dir);
-nlink_t getLinks(struct stat meta_data);
 void myitoa(int num, char* str);
 void writeWrapper(char* str);
-uid_t getUID(struct stat meta_data);
-gid_t getGID(struct stat meta_data);
-off_t getSize(struct stat meta_data);
 void printAccessTime(struct stat meta_data);
 char* monthToStr(int month, char* monthStr);
 void printMetaData(struct stat meta_data);
@@ -59,7 +57,15 @@ int main(int argc, char** argv)
         //If stat returned successfully then get convert meta data to string and write,
         //otherwise write error message.
         if (!status) {
-            printMetaData(meta_data);
+            if (S_ISDIR(meta_data.st_mode)) {
+                int fd = open(fileName, O_RDONLY);
+
+                if (fd != -1) {
+                    printf("Call getdents on directory and printMetaData of files\n");
+                }
+            } else {
+                printMetaData(meta_data);
+            }
         } else {
             writeErrorMsg(fileName);
         }
