@@ -1,9 +1,11 @@
+#define _GNU_SOURCE
 #include <unistd.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <fcntl.h>
 #include <time.h>
 #include <dirent.h>
+#include <sys/syscall.h>
 
 #include <stdio.h> //TODO - REMOVE THIS IMPORT STATEMENT AND ALL STDLIB FUNCTIONS
 
@@ -12,36 +14,41 @@
 #define GETDENTS_SYSCALL 78
 //Maximum directory name size in linux + length of error message
 #define MAX_ERROR_SIZE 4145
-#define NUM_PERMISSIONS 9
 #define MAX_INT_DIGITS 10
 #define ASCII_CONVERSION_INT 48
 #define MONTH_LENGTH 3
-#define DAY_LENGTH 2
-#define HOUR_LENGTH 2
-#define MINUTE_LENGTH 2
-#define YEAR_LENGTH 4
 #define STARTING_YEAR 1900
 #define SINGLE_DIGIT 9
-#define TIME_LENGTH 5
 #define BUF_SIZE 1024
 
 static const char *MONTH_STRING[] = {
     "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
 };
 
-int mystat();
-int mywrite();
-int myopen();
+struct linux_dirent {
+    unsigned long  d_ino;     /* Inode number */
+    unsigned long  d_off;     /* Offset to next linux_dirent */
+    unsigned short d_reclen;  /* Length of this linux_dirent */
+    char           d_name[];  /* Filename (null-terminated) */
+                      /* length is actually (d_reclen - 2 -
+                         offsetof(struct linux_dirent, d_name)) */
+};
+
+int myStat();
+int myWrite(char* str);
+int myOpen();
+int myGetDents(int fd, char* buf, int bufferSize);
 int myStrLen(char* str);
 void myStrCpy(char* dest, const char* src, size_t n);
+void myitoa(int num, char* str);
+
 void writeErrorMsg(char* fileName);
 void getFilePerm(struct stat meta_data, char* filePerm);
 void getDirChar(struct stat meta_data, char* dir);
-void myitoa(int num, char* str);
-void writeWrapper(char* str);
 void printAccessTime(struct stat meta_data);
 char* monthToStr(int month, char* monthStr);
 void printMetaData(struct stat meta_data);
+void printDirEntries(char* dirName);
 
 int main(int argc, char** argv)
 {
@@ -52,19 +59,16 @@ int main(int argc, char** argv)
         int size = myStrLen(argv[1]);
         char fileName[size];
         myStrCpy(fileName, argv[1], size);
-        int status = stat(fileName, &meta_data);
+        int status = myStat(fileName, &meta_data);
 
         //If stat returned successfully then get convert meta data to string and write,
         //otherwise write error message.
         if (!status) {
             if (S_ISDIR(meta_data.st_mode)) {
-                int fd = open(fileName, O_RDONLY);
-
-                if (fd != -1) {
-                    printf("Call getdents on directory and printMetaData of files\n");
-                }
+                printDirEntries(fileName);
             } else {
                 printMetaData(meta_data);
+                myWrite("\n");
             }
         } else {
             writeErrorMsg(fileName);
@@ -75,29 +79,47 @@ int main(int argc, char** argv)
     return 0;
 }
 
-void printMetaData(struct stat meta_data) {
-    char tempStr[MAX_INT_DIGITS];
+int myGetDents(int fd, char* buf, int bufferSize) {
+    return syscall(GETDENTS_SYSCALL, fd, buf, bufferSize);
+}
 
-    getDirChar(meta_data, tempStr);
-    writeWrapper(tempStr);
-    getFilePerm(meta_data, tempStr);
-    writeWrapper(tempStr);
+int myStat(char* fileName, struct stat* meta_data) {
+    return stat(fileName, meta_data);
+}
 
-    writeWrapper(" ");
-    myitoa(meta_data.st_nlink, tempStr);
-    writeWrapper(tempStr);
-    writeWrapper(" ");
-    myitoa(meta_data.st_uid, tempStr);
-    writeWrapper(tempStr);
-    writeWrapper(" ");
-    myitoa(meta_data.st_gid, tempStr);
-    writeWrapper(tempStr);
-    writeWrapper(" ");
-    myitoa(meta_data.st_size, tempStr);
-    writeWrapper(tempStr);
-    writeWrapper(" ");
-    printAccessTime(meta_data);
-    writeWrapper("\n");
+void printDirEntries(char* dirName) {
+    struct stat meta_data;
+    struct linux_dirent *d;
+    char buf[BUF_SIZE];
+
+    int fd = open(dirName, O_RDONLY);
+
+    //Adapted 'man 2 getdents' man page code which reads in the directory entries.
+    // Then stores then in a file and prints their meta data and name.
+    if (fd > -1) {
+        int bytesRead = myGetDents(fd, buf, BUF_SIZE);
+        if (bytesRead > 0) {
+            for (int bpos = 0; bpos < bytesRead;) {
+                d = (struct linux_dirent *) (buf + bpos);
+                int status = myStat(d->d_name, &meta_data);
+
+                if (!status) {
+                    printMetaData(meta_data);
+                    myWrite(" ");
+                    myWrite(d->d_name);
+                    myWrite("\n");
+                }
+
+                bpos += d->d_reclen;
+            }
+        }
+    }
+}
+
+//Wrapper for the 'write' system call
+//Takes a string as an argument and calculates the length using myStrLen
+int myWrite(char* str) {
+    return write(WRITE_SYSCALL, str, myStrLen(str));
 }
 
 //Custom implementation of strlen() function.
@@ -117,6 +139,51 @@ void myStrCpy(char* dest, const char* src, size_t n) {
         dest[i] = src[i];
     }
     dest[i] = '\0';
+}
+
+//Converts an integer to a character array that can be output using write().
+//Takes an integer as a parameter.
+void myitoa(int num, char* str) {
+    char intStr[MAX_INT_DIGITS];
+    int i = 0;
+
+    //Gets digits from least to most significant (reverse order in array)
+    while (num) {
+        intStr[i++] = num % 10;
+        num /= 10;
+    }
+    intStr[i] = '\0';
+
+    //Converts digits to ASCII and reorders in new array
+    for (int j = 0, k = i - 1; j < i; j++, k--) {
+        str[k] = intStr[j] + ASCII_CONVERSION_INT;
+    }
+
+    str[i] = '\0';
+}
+
+void printMetaData(struct stat meta_data) {
+    char tempStr[MAX_INT_DIGITS];
+
+    getDirChar(meta_data, tempStr);
+    myWrite(tempStr);
+    getFilePerm(meta_data, tempStr);
+    myWrite(tempStr);
+
+    myWrite(" ");
+    myitoa(meta_data.st_nlink, tempStr);
+    myWrite(tempStr);
+    myWrite(" ");
+    myitoa(meta_data.st_uid, tempStr);
+    myWrite(tempStr);
+    myWrite(" ");
+    myitoa(meta_data.st_gid, tempStr);
+    myWrite(tempStr);
+    myWrite(" ");
+    myitoa(meta_data.st_size, tempStr);
+    myWrite(tempStr);
+    myWrite(" ");
+    printAccessTime(meta_data);
 }
 
 //Writes an error message to the terminal if the file/directory does not exist
@@ -155,12 +222,6 @@ void getFilePerm(struct stat meta_data, char* filePerm) {
 }
 //END CITATION
 
-//Wrapper for the 'write' syste call
-//Takes a string as an argument and calculates the length using myStrLen
-void writeWrapper(char* str) {
-    write(WRITE_SYSCALL, str, myStrLen(str));
-}
-
 void printAccessTime(struct stat meta_data) {
     struct tm* fileTime;
     struct tm* currentTime;
@@ -179,15 +240,15 @@ void printAccessTime(struct stat meta_data) {
     fileYear = fileTime->tm_year + STARTING_YEAR;
 
     //Converts month to a string word and writes it
-    writeWrapper(monthToStr(fileTime->tm_mon, tempStr));
+    myWrite(monthToStr(fileTime->tm_mon, tempStr));
 
-    writeWrapper(" ");
+    myWrite(" ");
 
     //Gets day and prints it to terminal
     myitoa(fileTime->tm_mday, tempStr);
-    writeWrapper(tempStr);
+    myWrite(tempStr);
 
-    writeWrapper(" ");
+    myWrite(" ");
 
     if (fileYear == currentYear) {
         //Sets initial hour value to 00
@@ -198,8 +259,8 @@ void printAccessTime(struct stat meta_data) {
         //Decides how many hour digits to copy based on size of hour time.
         //Then prints hour time and a ':'
         myitoa(fileTime->tm_hour, (fileTime->tm_hour > SINGLE_DIGIT ? tempStr : tempStr + 1));
-        writeWrapper(tempStr);
-        writeWrapper(":");
+        myWrite(tempStr);
+        myWrite(":");
 
         //Sets initial minute value to 00
         tempStr[0] = '0';
@@ -208,10 +269,10 @@ void printAccessTime(struct stat meta_data) {
         //Decides how many minute digits to copy based on size of minute time.
         //Then prints minute time
         myitoa(fileTime->tm_min, (fileTime->tm_min > SINGLE_DIGIT ? tempStr : tempStr + 1));
-        writeWrapper(tempStr);
+        myWrite(tempStr);
     } else {
         myitoa(fileYear, tempStr);
-        writeWrapper(tempStr);
+        myWrite(tempStr);
     }
 
 }
@@ -219,25 +280,4 @@ void printAccessTime(struct stat meta_data) {
 char* monthToStr(int month, char* monthStr) {
     myStrCpy(monthStr, MONTH_STRING[month], MONTH_LENGTH + 1);
     return monthStr;
-}
-
-//Converts an integer to a character array that can be output using write().
-//Takes an integer as a parameter.
-void myitoa(int num, char* str) {
-    char intStr[MAX_INT_DIGITS];
-    int i = 0;
-
-    //Gets digits from least to most significant (reverse order in array)
-    while (num) {
-        intStr[i++] = num % 10;
-        num /= 10;
-    }
-    intStr[i] = '\0';
-
-    //Converts digits to ASCII and reorders in new array
-    for (int j = 0, k = i - 1; j < i; j++, k--) {
-        str[k] = intStr[j] + ASCII_CONVERSION_INT;
-    }
-
-    str[i] = '\0';
 }
