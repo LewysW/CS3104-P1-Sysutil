@@ -7,10 +7,10 @@
 #include <dirent.h>
 #include <sys/syscall.h>
 
-#include <stdio.h> //TODO - REMOVE THIS IMPORT STATEMENT AND ALL STDLIB FUNCTIONS
-
 // A complete list of linux system call numbers can be found in: /usr/include/asm/unistd_64.h
 #define WRITE_SYSCALL 1
+#define STAT_SYSCALL 4
+#define OPEN_SYSCALL 2
 #define GETDENTS_SYSCALL 78
 //Maximum directory name size in linux + length of error message
 #define MAX_ERROR_SIZE 4145
@@ -25,6 +25,7 @@ static const char *MONTH_STRING[] = {
     "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
 };
 
+//Struct from getdents man page
 struct linux_dirent {
     unsigned long  d_ino;     /* Inode number */
     unsigned long  d_off;     /* Offset to next linux_dirent */
@@ -34,18 +35,18 @@ struct linux_dirent {
                          offsetof(struct linux_dirent, d_name)) */
 };
 
-int myStat();
+int myStat(char* fileName, struct stat* meta_data);
 int myWrite(char* str);
-int myOpen();
-int myGetDents(int fd, char* buf, int bufferSize);
+int myGetDents(long fd, char* buf, long bufferSize);
 int myStrLen(char* str);
 void myStrCpy(char* dest, const char* src, size_t n);
 void myitoa(int num, char* str);
+int myOpen(char* fileName, long mode);
 
 void writeErrorMsg(char* fileName);
 void getFilePerm(struct stat meta_data, char* filePerm);
 void getDirChar(struct stat meta_data, char* dir);
-void printAccessTime(struct stat meta_data);
+void printModifiedTime(struct stat meta_data);
 char* monthToStr(int month, char* monthStr);
 void printMetaData(struct stat meta_data);
 void printDirEntries(char* dirName);
@@ -75,51 +76,73 @@ int main(int argc, char** argv)
         }
     }
 
-
     return 0;
 }
 
-int myGetDents(int fd, char* buf, int bufferSize) {
-    return syscall(GETDENTS_SYSCALL, fd, buf, bufferSize);
+int myGetDents(long fd, char* buf, long bufferSize) {
+    long ret = -1;
+
+    asm( "movq %1, %%rax\n\t"
+         "movq %2, %%rdi\n\t"
+         "movq %3, %%rsi\n\t"
+         "movq %4, %%rdx\n\t"
+         "syscall\n\t"
+         "movq %%rax, %0\n\t" :
+         "=r"(ret) :
+         "r"((long)GETDENTS_SYSCALL), "r"(fd), "r"(buf), "r"(bufferSize) :
+         "%rax","%rdi", "%rsi", "%rdx", "memory" );
+
+    return ret;
 }
 
 int myStat(char* fileName, struct stat* meta_data) {
-    return stat(fileName, meta_data);
+    long ret = -1;
+
+    asm( "movq %1, %%rax\n\t"
+         "movq %2, %%rdi\n\t"
+         "movq %3, %%rsi\n\t"
+         "syscall\n\t"
+         "movq %%rax, %0\n\t" :
+         "=r"(ret) :
+         "r"((long)STAT_SYSCALL), "r"(fileName), "r"(meta_data) :
+         "%rax","%rdi", "%rsi","memory" );
+
+    return ret;
 }
 
-void printDirEntries(char* dirName) {
-    struct stat meta_data;
-    struct linux_dirent *d;
-    char buf[BUF_SIZE];
+int myOpen(char* fileName, long mode) {
+    long ret = -1;
 
-    int fd = open(dirName, O_RDONLY);
+    asm( "movq %1, %%rax\n\t"
+         "movq %2, %%rdi\n\t"
+         "movq %3, %%rsi\n\t"
+         "syscall\n\t"
+         "movq %%rax, %0\n\t" :
+         "=r"(ret) :
+         "r"((long)OPEN_SYSCALL), "r"(fileName), "r"(mode) :
+         "%rax","%rdi", "%rsi","memory" );
 
-    //Adapted 'man 2 getdents' man page code which reads in the directory entries.
-    // Then stores then in a file and prints their meta data and name.
-    if (fd > -1) {
-        int bytesRead = myGetDents(fd, buf, BUF_SIZE);
-        if (bytesRead > 0) {
-            for (int bpos = 0; bpos < bytesRead;) {
-                d = (struct linux_dirent *) (buf + bpos);
-                int status = myStat(d->d_name, &meta_data);
-
-                if (!status) {
-                    printMetaData(meta_data);
-                    myWrite(" ");
-                    myWrite(d->d_name);
-                    myWrite("\n");
-                }
-
-                bpos += d->d_reclen;
-            }
-        }
-    }
+    return ret;
 }
 
 //Wrapper for the 'write' system call
 //Takes a string as an argument and calculates the length using myStrLen
 int myWrite(char* str) {
-    return write(WRITE_SYSCALL, str, myStrLen(str));
+    size_t len = myStrLen(str);     // Length of our string, which we need to pass to write syscall
+    long handle = 1;     // 1 for stdout
+    long ret = -1;
+
+    asm( "movq %1, %%rax\n\t"
+         "movq %2, %%rdi\n\t"
+         "movq %3, %%rsi\n\t"
+         "movq %4, %%rdx\n\t"
+         "syscall\n\t"
+         "movq %%rax, %0\n\t" :
+         "=r"(ret) :
+         "r"((long)WRITE_SYSCALL),"r"(handle), "r"(str), "r"(len) :
+         "%rax","%rdi","%rsi","%rdx","memory" );
+
+    return ret;
 }
 
 //Custom implementation of strlen() function.
@@ -162,6 +185,39 @@ void myitoa(int num, char* str) {
     str[i] = '\0';
 }
 
+void printDirEntries(char* dirName) {
+    struct stat meta_data;
+    struct linux_dirent *d;
+    char buf[BUF_SIZE];
+
+    int fd = myOpen(dirName, O_RDONLY);
+
+    //Adapted 'man 2 getdents' man page code which reads in the directory entries.
+    // Then stores then in a file and prints their meta data and name.
+    if (fd > -1) {
+        int bytesRead = myGetDents(fd, buf, BUF_SIZE);
+        if (bytesRead > 0) {
+            for (int bpos = 0; bpos < bytesRead;) {
+                d = (struct linux_dirent *) (buf + bpos);
+                char name[myStrLen(d->d_name) + myStrLen(dirName)];
+                myStrCpy(name, dirName, myStrLen(dirName));
+                myStrCpy(name + myStrLen(dirName), d->d_name, myStrLen(d->d_name));
+
+                int status = myStat(name, &meta_data);
+
+                if (!status) {
+                    printMetaData(meta_data);
+                    myWrite(" ");
+                    myWrite(d->d_name);
+                    myWrite("\n");
+                }
+
+                bpos += d->d_reclen;
+            }
+        }
+    }
+}
+
 void printMetaData(struct stat meta_data) {
     char tempStr[MAX_INT_DIGITS];
 
@@ -183,7 +239,7 @@ void printMetaData(struct stat meta_data) {
     myitoa(meta_data.st_size, tempStr);
     myWrite(tempStr);
     myWrite(" ");
-    printAccessTime(meta_data);
+    printModifiedTime(meta_data);
 }
 
 //Writes an error message to the terminal if the file/directory does not exist
@@ -222,7 +278,7 @@ void getFilePerm(struct stat meta_data, char* filePerm) {
 }
 //END CITATION
 
-void printAccessTime(struct stat meta_data) {
+void printModifiedTime(struct stat meta_data) {
     struct tm* fileTime;
     struct tm* currentTime;
     int currentYear;
