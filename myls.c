@@ -13,13 +13,12 @@
 #define OPEN_SYSCALL 2
 #define GETDENTS_SYSCALL 78
 //Maximum directory name size in linux + length of error message
-#define MAX_ERROR_SIZE 4145
+#define BUF_SIZE 4145
 #define MAX_INT_DIGITS 10
 #define ASCII_CONVERSION_INT 48
 #define MONTH_LENGTH 3
 #define STARTING_YEAR 1900
 #define SINGLE_DIGIT 9
-#define BUF_SIZE 1024
 
 static const char *MONTH_STRING[] = {
     "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
@@ -58,7 +57,7 @@ int main(int argc, char** argv)
     //If file specified, get the file name
     if (argc == 2) {
         int size = myStrLen(argv[1]);
-        char fileName[size];
+        char fileName[BUF_SIZE];
         myStrCpy(fileName, argv[1], size);
         int status = myStat(fileName, &meta_data);
 
@@ -199,7 +198,7 @@ void printDirEntries(char* dirName) {
         if (bytesRead > 0) {
             for (int bpos = 0; bpos < bytesRead;) {
                 d = (struct linux_dirent *) (buf + bpos);
-                char name[myStrLen(d->d_name) + myStrLen(dirName)];
+                char name[BUF_SIZE];
                 myStrCpy(name, dirName, myStrLen(dirName));
                 myStrCpy(name + myStrLen(dirName), d->d_name, myStrLen(d->d_name));
 
@@ -245,7 +244,7 @@ void printMetaData(struct stat meta_data) {
 //Writes an error message to the terminal if the file/directory does not exist
 //Takes in the name of the file.
 void writeErrorMsg(char* fileName) {
-    char error[MAX_ERROR_SIZE] = "myls: cannot access ";
+    char error[BUF_SIZE] = "myls: cannot access ";
     int size = myStrLen(error);
     myStrCpy(error + size, fileName, myStrLen(fileName));
     size = myStrLen(error);
