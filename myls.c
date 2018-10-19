@@ -7,24 +7,47 @@
 #include <dirent.h>
 #include <sys/syscall.h>
 
+//TODO - REMOVE
+#include <stdio.h>
+#include <stdlib.h>
+#include <errno.h>
+#include <string.h>
+
 // A complete list of linux system call numbers can be found in: /usr/include/asm/unistd_64.h
+//Defines system call numbers for system calls used in the solution
 #define WRITE_SYSCALL 1
 #define STAT_SYSCALL 4
 #define OPEN_SYSCALL 2
 #define GETDENTS_SYSCALL 78
-//Maximum directory name size in linux + length of error message
+
+/*Maximum directory name size in linux + length of error message. Used to
+store path argument for files/directories as well as error message if path does
+not exist*/
 #define BUF_SIZE 4145
+
+/*Maximum number of digits used to represent a standard integer is 10. Used to define
+a char[] buffer that is used to store a string representation of an integer*/
 #define MAX_INT_DIGITS 10
+
+/*Defines the number required to convert from an integer representation of a
+number to the ASCII code of that number.*/
 #define ASCII_CONVERSION_INT 48
+
+//Defines number of characters needed to represent month strings (e.g. "Jan")
 #define MONTH_LENGTH 3
+
+//Defines the year that localtime starts counting from for printing purposes (e.g. 1955 is stored as 55)
 #define STARTING_YEAR 1900
+
+//Defines upperbound of single digits for formatting check when printing time
 #define SINGLE_DIGIT 9
 
+//Defines list of month strings which are indexed using month integer returned by localtime
 static const char *MONTH_STRING[] = {
     "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
 };
 
-//Struct from getdents man page
+//Directory entry Struct from getdents man page
 struct linux_dirent {
     unsigned long  d_ino;     /* Inode number */
     unsigned long  d_off;     /* Offset to next linux_dirent */
@@ -34,19 +57,27 @@ struct linux_dirent {
                          offsetof(struct linux_dirent, d_name)) */
 };
 
+//Headers for system call wrapper functions containing inline assembly
 int myStat(char* fileName, struct stat* meta_data);
 int myWrite(char* str);
 int myGetDents(long fd, char* buf, long bufferSize);
+int myOpen(char* fileName, long mode);
+
+//Custom implementations of useful string functions
 int myStrLen(char* str);
 void myStrCpy(char* dest, const char* src, size_t n);
 void myitoa(int num, char* str);
-int myOpen(char* fileName, long mode);
 
+//Given an integer month (0-11), returns a
+char* monthToStr(int month, char* monthStr);
+
+//Writes error message to stdout if stat fails on a filename
 void writeErrorMsg(char* fileName);
+//Given a stat struct, populates a char* with file permissions of a file
 void getFilePerm(struct stat meta_data, char* filePerm);
+//Given a
 void getDirChar(struct stat meta_data, char* dir);
 void printModifiedTime(struct stat meta_data);
-char* monthToStr(int month, char* monthStr);
 void printMetaData(struct stat meta_data);
 void printDirEntries(char* dirName);
 
@@ -200,7 +231,8 @@ void printDirEntries(char* dirName) {
                 d = (struct linux_dirent *) (buf + bpos);
                 char name[BUF_SIZE];
                 myStrCpy(name, dirName, myStrLen(dirName));
-                myStrCpy(name + myStrLen(dirName), d->d_name, myStrLen(d->d_name));
+                myStrCpy(name + myStrLen(dirName), "/", myStrLen("/"));
+                myStrCpy(name + myStrLen(dirName) + myStrLen("/"), d->d_name, myStrLen(d->d_name));
 
                 int status = myStat(name, &meta_data);
 
