@@ -6,6 +6,7 @@
 #include <time.h>
 #include <dirent.h>
 #include <sys/syscall.h>
+#include <stdbool.h>
 
 // A complete list of linux system call numbers can be found in: /usr/include/asm/unistd_64.h
 //Defines system call numbers for system calls used in the solution
@@ -43,6 +44,14 @@ static const char *MONTH_STRING[] = {
     "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
 };
 
+//Defines red and green character codes for test output
+#define RED     "\033[31m"
+#define GREEN   "\033[32m"
+#define WHITE   "\033[39m"
+
+//Defines number of tests to be run by test suite
+#define NUM_TESTS 10
+
 //Directory entry Struct from getdents man page
 struct linux_dirent {
     unsigned long  d_ino;     /* Inode number */
@@ -64,6 +73,7 @@ int myCreat(const char* pathname, mode_t mode);
 //Custom implementations of useful string functions
 int myStrLen(char* str);
 void myStrCpy(char* dest, const char* src, size_t n);
+bool strEqual(char* str1, char* str2);
 void myitoa(unsigned int num, char* str);
 
 //Given an integer month (0-11), populates monthStr with a string month
@@ -84,6 +94,20 @@ file, as well as meta data of all files in a directory*/
 void printModifiedTime(struct stat meta_data);
 void printMetaData(struct stat meta_data);
 void printDirEntries(char* dirName);
+
+//Functions for unit tests
+int runTests(bool (*testFunctions[]) (), int numTests);
+void initTests(bool (*testFunctions[]) ());
+bool myitoaTest1();
+bool myitoaTest2();
+bool myitoaTest3();
+bool myitoaTest4();
+bool myStrCpyTest1();
+bool myStrCpyTest2();
+bool myStrCpyTest3();
+bool myStrLenTest1();
+bool myStrLenTest2();
+bool myStrLenTest3();
 
 int main(int argc, char** argv)
 {
@@ -113,6 +137,11 @@ int main(int argc, char** argv)
         } else {
             writeErrorMsg(fileName);
         }
+    } else if (argc == 1) {
+        //Creates list of bool functions to store test functions
+        bool (*unitTests[NUM_TESTS]) ();
+        initTests(unitTests);
+        runTests(unitTests, NUM_TESTS);
     }
 
     return 0;
@@ -254,6 +283,8 @@ Custom implementation of strlen function
 @return - length of string not including '\0'
 **/
 int myStrLen(char* str) {
+    if (str == NULL) return -1;
+
     int i;
     for (i = 0; str[i] != '\0'; i++);
     return i;
@@ -266,6 +297,11 @@ Custom implementation of strcpy function
 @n - size of string to copy in bytes
 **/
 void myStrCpy(char* dest, const char* src, size_t n) {
+    if (src == NULL) {
+        dest = NULL;
+        return;
+    }
+
     size_t i;
     for (i = 0; i < n; i++) {
         dest[i] = src[i];
@@ -274,13 +310,38 @@ void myStrCpy(char* dest, const char* src, size_t n) {
 }
 
 /**
+Compares two strings for equality - used for unit testing
+@str1 - first string
+@str2 - second string
+return - whether string is equal
+**/
+bool strEqual(char* str1, char* str2) {
+    if (str1 == NULL || str2 == NULL) return (str1 == str2);
+
+    if (myStrLen(str1) != myStrLen(str2)) return false;
+
+    for (int i = 0; str1[i] != '\0'; i++) {
+        if (str1[i] != str2[i]) return false;
+    }
+
+    return true;
+}
+
+/**
 Custom implementation of itoa function
 @num - positive integer to convert to string
 @str - char* to store converted string
 **/
 void myitoa(unsigned int num, char* str) {
-    char intStr[MAX_INT_DIGITS];
+    char intStr[MAX_INT_DIGITS + 1];
     int i = 0;
+
+    //Assigns 0 string if num is zero
+    if (num == 0) {
+        str[0] = '0';
+        str[1] = '\0';
+        return;
+    }
 
     //Gets digits from least to most significant (reverse order in array)
     while (num) {
@@ -522,4 +583,136 @@ Converts an int representation of a month to the equivalent string
 **/
 void monthToStr(unsigned int month, char* monthStr) {
     myStrCpy(monthStr, MONTH_STRING[month], MONTH_LENGTH + 1);
+}
+
+/**
+Runs a given list of unit tests.
+Iterates over each unit test in the list of test functions. If calling the
+current function returns true then the test has passed, otherwise it has failed.
+@testFunctions - list of unit tests to run
+@numTests - num tests to run
+@returns - number of passing unit tests
+*/
+int runTests(bool (*testFunctions[]) (), int numTests) {
+    //Number of tests that have passed
+    int numPassingTests = 0;
+    char printBuf[MAX_INT_DIGITS];
+
+    //Lists result of each unit test
+    int i;
+    for (i = 0; i < numTests; i++) {
+        if ((*testFunctions[i]) ()) {
+            numPassingTests += 1;
+            myWrite(GREEN);
+            myWrite("\n***TEST ");
+            myitoa(i + 1, printBuf);
+            myWrite(printBuf);
+            myWrite(" PASSED***\n");
+        } else {
+            myWrite(RED);
+            myWrite("\n***TEST ");
+            myitoa(i + 1, printBuf);
+            myWrite(printBuf);
+            myWrite(" FAILED***\n");
+        }
+    }
+
+    //Displays total number of unit tests which have passed
+    myWrite("\n***");
+    (numPassingTests > 0) ? myitoa(numPassingTests, printBuf) : myStrCpy(printBuf, "0", 1);
+    myWrite(printBuf);
+    myWrite("/");
+    myitoa(i, printBuf);
+    myWrite(printBuf);
+    myWrite(" TESTS PASSED***\n");
+
+    myWrite(WHITE);
+    return numPassingTests;
+}
+
+/**
+Initialises the array of tests to be run with the address of each unit test function.
+@testFunctions - list of test functions to be called
+**/
+void initTests(bool (*testFunctions[]) ()) {
+    testFunctions[0] = myitoaTest1;
+    testFunctions[1] = myitoaTest2;
+    testFunctions[2] = myitoaTest3;
+    testFunctions[3] = myitoaTest4;
+    testFunctions[4] = myStrCpyTest1;
+    testFunctions[5] = myStrCpyTest2;
+    testFunctions[6] = myStrCpyTest3;
+    testFunctions[7] = myStrLenTest1;
+    testFunctions[8] = myStrLenTest2;
+    testFunctions[9] = myStrLenTest3;
+}
+
+//Tests that myitoa returns string representation of 0
+bool myitoaTest1() {
+    char buf[MAX_INT_DIGITS + 1];
+    myitoa(0, buf);
+    return (strEqual(buf, "0"));
+}
+
+//Tests that myitoa returns string representation of 1
+bool myitoaTest2() {
+    char buf[MAX_INT_DIGITS + 1];
+    myitoa(1, buf);
+    return (strEqual(buf, "1"));
+}
+
+//Tests that myitoa does not return a negative string as an unsigned int is used
+bool myitoaTest3() {
+    char buf[MAX_INT_DIGITS + 1];
+    myitoa(-1, buf);
+    return (!strEqual(buf, "-1"));
+}
+
+//Tests that myitoa converts normal data to string
+bool myitoaTest4() {
+    char buf[MAX_INT_DIGITS + 1];
+    myitoa(1024, buf);
+    return (strEqual(buf, "1024"));
+}
+
+//Tests that myStrCpy can copy a normal string from one buffer to another
+bool myStrCpyTest1() {
+    char buf[BUF_SIZE];
+    char str[BUF_SIZE] = "Hello";
+    myStrCpy(buf, str, myStrLen(str));
+    return (strEqual(buf, "Hello"));
+}
+
+//Tests that myStrCpy can copy an empty string
+bool myStrCpyTest2() {
+    char buf[BUF_SIZE];
+    char str[BUF_SIZE] = "";
+    myStrCpy(buf, str, myStrLen(str));
+    return (strEqual(buf, ""));
+}
+
+//Tests that myStrCpy can copy a pathname
+bool myStrCpyTest3() {
+    char buf[BUF_SIZE];
+    char str[BUF_SIZE] = "~/Documents/CS3104/practicals/CS3104-P1-Sysutil";
+    myStrCpy(buf, str, myStrLen(str));
+    return (strEqual(buf, "~/Documents/CS3104/practicals/CS3104-P1-Sysutil"));
+}
+
+//Test myStrCpy with some normal test data
+bool myStrLenTest1() {
+    char buf[6] = "Hello";
+    return (myStrLen(buf) == 5);
+}
+
+//Tests myStrLen with an empty string
+bool myStrLenTest2() {
+    char buf[10] = "";
+    return (myStrLen(buf) == 0);
+}
+
+//Tests myStrLen with NULL
+bool myStrLenTest3() {
+    char* buf = NULL;
+    return (myStrLen(buf) == -1);
 }
