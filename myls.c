@@ -8,6 +8,7 @@
 #include <sys/syscall.h>
 #include <stdbool.h>
 
+
 // A complete list of linux system call numbers can be found in: /usr/include/asm/unistd_64.h
 //Defines system call numbers for system calls used in the solution
 #define WRITE_SYSCALL 1
@@ -16,6 +17,8 @@
 #define GETDENTS_SYSCALL 78
 #define TIME_SYSCALL 201
 #define CREAT_SYSCALL 85
+#define CLOSE_SYSCALL 3
+#define UNLINK_SYSCALL 87
 
 /*Maximum directory name size in linux + length of error message. Used to
 store path argument for files/directories as well as error message if path does
@@ -50,7 +53,7 @@ static const char *MONTH_STRING[] = {
 #define WHITE   "\033[39m"
 
 //Defines number of tests to be run by test suite
-#define NUM_TESTS 10
+#define NUM_TESTS 31
 
 //Directory entry Struct from getdents man page
 struct linux_dirent {
@@ -65,10 +68,12 @@ struct linux_dirent {
 //Headers for system call wrapper functions containing inline assembly
 int myStat(char* fileName, struct stat* meta_data);
 int myWrite(char* str);
-int myGetDents(unsigned long fd, char* buf, unsigned long bufferSize);
+int myGetDents(long fd, char* buf, unsigned long bufferSize);
 int myOpen(char* fileName, mode_t mode);
+int myClose(long fd);
 time_t myTime(time_t* tloc);
 int myCreat(const char* pathname, mode_t mode);
+int unlink(const char* pathname);
 
 //Custom implementations of useful string functions
 int myStrLen(char* str);
@@ -105,9 +110,30 @@ bool myitoaTest4();
 bool myStrCpyTest1();
 bool myStrCpyTest2();
 bool myStrCpyTest3();
+bool myStrCpyTest4();
+bool monthToStrTest1();
+bool monthToStrTest2();
+bool monthToStrTest3();
 bool myStrLenTest1();
 bool myStrLenTest2();
 bool myStrLenTest3();
+bool myStatTest1();
+bool myStatTest2();
+bool myStatTest3();
+bool myOpenTest1();
+bool myOpenTest2();
+bool myCloseTest1();
+bool myCloseTest2();
+bool myGetDentsTest1();
+bool myGetDentsTest2();
+bool myWriteTest1();
+bool myWriteTest2();
+bool myWriteTest3();
+bool myTimeTest();
+bool myCreatTest1();
+bool myCreatTest2();
+bool myUnlinkTest1();
+bool myUnlinkTest2();
 
 int main(int argc, char** argv)
 {
@@ -154,7 +180,7 @@ Custom wrapper function for getdents system call using inline assembly
 @bufferSize - size of buffer
 @return - number of bytes read
 **/
-int myGetDents(unsigned long fd, char* buf, unsigned long bufferSize) {
+int myGetDents(long fd, char* buf, unsigned long bufferSize) {
     long ret = -1;
 
     asm( "movq %1, %%rax\n\t"
@@ -208,6 +234,25 @@ int myOpen(char* fileName, mode_t mode) {
          "=r"(ret) :
          "r"((long)OPEN_SYSCALL), "r"(fileName), "r"((long)mode) :
          "%rax","%rdi", "%rsi","memory" );
+
+    return ret;
+}
+
+/**
+Custom wrapper function for close system call using inline assembly
+@fd - file descriptor of file to close
+@return - 0 if successful, -1 if error and errno is set
+**/
+int myClose(long fd) {
+    long ret = -1;
+
+    asm( "movq %1, %%rax\n\t"
+         "movq %2, %%rdi\n\t"
+         "syscall\n\t"
+         "movq %%rax, %0\n\t" :
+         "=r"(ret) :
+         "r"((long)CLOSE_SYSCALL), "r"(fd) :
+         "%rax","%rdi","memory" );
 
     return ret;
 }
@@ -278,6 +323,24 @@ int myCreat(const char* pathname, mode_t mode) {
 }
 
 /**
+Custom wrapper function for unlink system call using inline assembly
+@pathname - path of file to delete
+**/
+int myUnlink(const char* pathname) {
+    long ret = -1;
+
+    asm( "movq %1, %%rax\n\t"
+         "movq %2, %%rdi\n\t"
+         "syscall\n\t"
+         "movq %%rax, %0\n\t" :
+         "=r"(ret) :
+         "r"((long)UNLINK_SYSCALL), "r"(pathname) :
+         "%rax","%rdi","memory" );
+
+    return ret;
+}
+
+/**
 Custom implementation of strlen function
 @str - string to get the length of
 @return - length of string not including '\0'
@@ -297,8 +360,8 @@ Custom implementation of strcpy function
 @n - size of string to copy in bytes
 **/
 void myStrCpy(char* dest, const char* src, size_t n) {
+    //If src is NULL then operation is terminated.
     if (src == NULL) {
-        dest = NULL;
         return;
     }
 
@@ -449,6 +512,9 @@ void printDirEntries(char* dirName) {
 
             }
         }
+
+        myClose(fd);
+
     }
 }
 
@@ -577,12 +643,17 @@ void printModifiedTime(struct stat meta_data) {
 
 /**
 Converts an int representation of a month to the equivalent string
-(e.g. 0 is 'Jan', 1 is 'Feb')
+(e.g. 0 is 'Jan', 1 is 'Feb'), returns empty string if invalid int
 @month - int representation of month
 @monthStr - character array to populate with string month
 **/
 void monthToStr(unsigned int month, char* monthStr) {
-    myStrCpy(monthStr, MONTH_STRING[month], MONTH_LENGTH + 1);
+    //Month always non-negative as unsigned
+    if (month < 12) {
+        myStrCpy(monthStr, MONTH_STRING[month], MONTH_LENGTH);
+    } else {
+        myStrCpy(monthStr, "", myStrLen(""));
+    }
 }
 
 /**
@@ -642,9 +713,30 @@ void initTests(bool (*testFunctions[]) ()) {
     testFunctions[4] = myStrCpyTest1;
     testFunctions[5] = myStrCpyTest2;
     testFunctions[6] = myStrCpyTest3;
-    testFunctions[7] = myStrLenTest1;
-    testFunctions[8] = myStrLenTest2;
-    testFunctions[9] = myStrLenTest3;
+    testFunctions[7] = myStrCpyTest4;
+    testFunctions[8] = myStrLenTest1;
+    testFunctions[9] = myStrLenTest2;
+    testFunctions[10] = myStrLenTest3;
+    testFunctions[11] = monthToStrTest1;
+    testFunctions[12] = monthToStrTest2;
+    testFunctions[13] = monthToStrTest3;
+    testFunctions[14] = myStatTest1;
+    testFunctions[15] = myStatTest2;
+    testFunctions[16] = myStatTest3;
+    testFunctions[17] = myOpenTest1;
+    testFunctions[18] = myOpenTest2;
+    testFunctions[19] = myCloseTest1;
+    testFunctions[20] = myCloseTest2;
+    testFunctions[21] = myGetDentsTest1;
+    testFunctions[22] = myGetDentsTest2;
+    testFunctions[23] = myWriteTest1;
+    testFunctions[24] = myWriteTest2;
+    testFunctions[25] = myWriteTest3;
+    testFunctions[26] = myTimeTest;
+    testFunctions[27] = myCreatTest1;
+    testFunctions[28] = myCreatTest2;
+    testFunctions[29] = myUnlinkTest1;
+    testFunctions[30] = myUnlinkTest2;
 }
 
 //Tests that myitoa returns string representation of 0
@@ -699,6 +791,14 @@ bool myStrCpyTest3() {
     return (strEqual(buf, "~/Documents/CS3104/practicals/CS3104-P1-Sysutil"));
 }
 
+//Tests to make sure that myStrCpy refuses to copy a NULL pointer
+bool myStrCpyTest4() {
+    char buf[BUF_SIZE] = "Original String";
+    char* str = NULL;
+    myStrCpy(buf, str, myStrLen(str));
+    return (strEqual(buf, "Original String"));
+}
+
 //Test myStrCpy with some normal test data
 bool myStrLenTest1() {
     char buf[6] = "Hello";
@@ -715,4 +815,142 @@ bool myStrLenTest2() {
 bool myStrLenTest3() {
     char* buf = NULL;
     return (myStrLen(buf) == -1);
+}
+
+//Tests that valid month integer 0 returns a valid month string "Jan"
+bool monthToStrTest1() {
+    char buf[MONTH_LENGTH + 1];
+    monthToStr(0, buf);
+    return (strEqual(buf, "Jan"));
+}
+
+//Tests that valid month integer 11 returns a valid month string "Dec"
+bool monthToStrTest2() {
+    char buf[MONTH_LENGTH + 1];
+    monthToStr(11, buf);
+    return (strEqual(buf, "Dec"));
+}
+
+//Tests that invalid month integer 12 returns an empty string
+bool monthToStrTest3() {
+    char buf[MONTH_LENGTH + 1];
+    monthToStr(12, buf);
+    return (strEqual(buf, ""));
+}
+
+//Tests that myStat returns 0 for a valid file
+bool myStatTest1() {
+    struct stat meta_data;
+    int status = myStat("myls.c", &meta_data);
+    return (status == 0);
+}
+
+//Tests that myStat returns an error number for a NULL file pointer
+bool myStatTest2() {
+    struct stat meta_data;
+    int status = myStat(NULL, &meta_data);
+    return (status != 0);
+}
+
+//Tests that myStat returns an error number for a non-existent file
+bool myStatTest3() {
+    struct stat meta_data;
+    int status = myStat("Non-existent file", &meta_data);
+    return (status != 0);
+}
+
+//Tests that valid file opens successfully for read only
+bool myOpenTest1() {
+    int fd = myOpen("myls.c", O_RDONLY);
+    myClose(fd);
+    return (fd != -1);
+}
+
+//Tests that invalid file failes to open successfully and return positive fd
+bool myOpenTest2() {
+    int fd = myOpen("Non-existent file", O_RDONLY);
+    myClose(fd);
+    return (fd < 0);
+}
+
+//Tests that valid open file is closed successfully
+bool myCloseTest1() {
+    int fd = myOpen("myls.c", O_RDONLY);
+    int status =  myClose(fd);
+    return (status == 0);
+}
+
+//Tests that unopened file cannot be closes successfully
+bool myCloseTest2() {
+    int fd = myOpen("Non-existent file", O_RDONLY);
+    int status = myClose(fd);
+    return (status != 0);
+}
+
+//Tests that positive number of bytes is read for current directory
+bool myGetDentsTest1() {
+    int fd = myOpen(".", O_RDONLY);
+    char buf[BUF_SIZE];
+    int bytesRead = myGetDents(fd, buf, BUF_SIZE);
+    return (bytesRead > 0);
+}
+
+//Tests that error code is returned for non existent directory
+bool myGetDentsTest2() {
+    int fd = myOpen("Not a directory", O_RDONLY);
+    char buf[BUF_SIZE];
+    int bytesRead = myGetDents(fd, buf, BUF_SIZE);
+    return (bytesRead < 0);
+}
+
+//Tests that zero bytes are written for empty string
+bool myWriteTest1() {
+    char buf[BUF_SIZE] = "";
+    int bytesWritten = myWrite(buf);
+    return (bytesWritten == 0);
+}
+
+//Tests that valid positive number of bytes are written for string
+bool myWriteTest2() {
+    char buf[BUF_SIZE] = "\n~/Documents/CS3104/practicals/CS3104-P1-Sysutil\n";
+    int bytesWritten = myWrite(buf);
+    return (bytesWritten == myStrLen(buf));
+}
+
+//Tests that error code is returned when trying to write NULL string
+bool myWriteTest3() {
+    char* buf = NULL;
+    int bytesWritten = myWrite(buf);
+    return (bytesWritten < 0);
+}
+
+//Tests that positive number of seconds are returned since Epoch
+bool myTimeTest() {
+    return (myTime(NULL) > 0);
+}
+
+//Tests that new file can be created successfully
+bool myCreatTest1() {
+    int fd = myCreat("NewFile.txt", O_RDONLY);
+    myUnlink("NewFile.txt");
+    return (fd > 0);
+}
+
+//Tests that error is returned when file name is NULL
+bool myCreatTest2() {
+    int fd = myCreat(NULL, O_RDONLY);
+    return (fd < 0);
+}
+
+//Tests that file is successfully deleted
+bool myUnlinkTest1() {
+    myCreat("NewFile.txt", O_RDONLY);
+    int status = myUnlink("NewFile.txt");
+    return (status == 0);
+}
+
+//Tests that error is returned when attempt is made to delete non-existent file
+bool myUnlinkTest2() {
+    int status = myUnlink("Non-existent.txt");
+    return (status < 0);
 }
