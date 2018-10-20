@@ -19,6 +19,8 @@
 #define CREAT_SYSCALL 85
 #define CLOSE_SYSCALL 3
 #define UNLINK_SYSCALL 87
+#define RMDIR_SYSCALL 84
+#define MKDIR_SYSCALL 83
 
 /*Maximum directory name size in linux + length of error message. Used to
 store path argument for files/directories as well as error message if path does
@@ -42,6 +44,9 @@ number to the ASCII code of that number.*/
 //Defines upperbound of single digits for formatting check when printing time
 #define SINGLE_DIGIT 9
 
+//Defines number of digits in a file's permissions
+#define NUM_PERMISSIONS 9
+
 //Defines list of month strings which are indexed using month integer returned by localtime
 static const char *MONTH_STRING[] = {
     "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
@@ -53,7 +58,7 @@ static const char *MONTH_STRING[] = {
 #define WHITE   "\033[39m"
 
 //Defines number of tests to be run by test suite
-#define NUM_TESTS 31
+#define NUM_TESTS 38
 
 //Directory entry Struct from getdents man page
 struct linux_dirent {
@@ -73,7 +78,9 @@ int myOpen(char* fileName, mode_t mode);
 int myClose(long fd);
 time_t myTime(time_t* tloc);
 int myCreat(const char* pathname, mode_t mode);
-int unlink(const char* pathname);
+int myUnlink(const char* pathname);
+int myrmdir(const char* pathname);
+int mymkdir(const char* pathname, mode_t mode);
 
 //Custom implementations of useful string functions
 int myStrLen(char* str);
@@ -134,6 +141,13 @@ bool myCreatTest1();
 bool myCreatTest2();
 bool myUnlinkTest1();
 bool myUnlinkTest2();
+bool myMkdirTest1();
+bool myMkdirTest2();
+bool myRmdirTest1();
+bool myRmdirTest2();
+bool getFilePermTest();
+bool getDirCharTest1();
+bool getDirCharTest2();
 
 int main(int argc, char** argv)
 {
@@ -323,8 +337,30 @@ int myCreat(const char* pathname, mode_t mode) {
 }
 
 /**
+Custom wrapper function for mkdir system call using inline assembly
+@pathname - path of directory to create
+@mode - access mode of directory
+@return - file descriptor if successful, -1 if error occurred
+**/
+int mymkdir(const char* pathname, mode_t mode) {
+    long ret = -1;
+
+    asm( "movq %1, %%rax\n\t"
+         "movq %2, %%rdi\n\t"
+         "movq %3, %%rsi\n\t"
+         "syscall\n\t"
+         "movq %%rax, %0\n\t" :
+         "=r"(ret) :
+         "r"((long)MKDIR_SYSCALL), "r"(pathname), "r"((long)mode) :
+         "%rax","%rdi", "%rsi","memory" );
+
+    return ret;
+}
+
+/**
 Custom wrapper function for unlink system call using inline assembly
 @pathname - path of file to delete
+@return - result of deletion
 **/
 int myUnlink(const char* pathname) {
     long ret = -1;
@@ -335,6 +371,25 @@ int myUnlink(const char* pathname) {
          "movq %%rax, %0\n\t" :
          "=r"(ret) :
          "r"((long)UNLINK_SYSCALL), "r"(pathname) :
+         "%rax","%rdi","memory" );
+
+    return ret;
+}
+
+/**
+Custom wrapper function for rmdir system call using inline assembly
+@pathname - path of directory to delete
+@return - result of deletion
+**/
+int myrmdir(const char* pathname) {
+    long ret = -1;
+
+    asm( "movq %1, %%rax\n\t"
+         "movq %2, %%rdi\n\t"
+         "syscall\n\t"
+         "movq %%rax, %0\n\t" :
+         "=r"(ret) :
+         "r"((long)RMDIR_SYSCALL), "r"(pathname) :
          "%rax","%rdi","memory" );
 
     return ret;
@@ -737,6 +792,13 @@ void initTests(bool (*testFunctions[]) ()) {
     testFunctions[28] = myCreatTest2;
     testFunctions[29] = myUnlinkTest1;
     testFunctions[30] = myUnlinkTest2;
+    testFunctions[31] = myMkdirTest1;
+    testFunctions[32] = myMkdirTest2;
+    testFunctions[33] = myRmdirTest1;
+    testFunctions[34] = myRmdirTest2;
+    testFunctions[35] = getFilePermTest;
+    testFunctions[36] = getDirCharTest1;
+    testFunctions[37] = getDirCharTest2;
 }
 
 //Tests that myitoa returns string representation of 0
@@ -953,4 +1015,83 @@ bool myUnlinkTest1() {
 bool myUnlinkTest2() {
     int status = myUnlink("Non-existent.txt");
     return (status < 0);
+}
+
+//Tests that directory can be created successfully
+bool myMkdirTest1() {
+    int status = mymkdir("Test Directory", O_RDONLY);
+    myrmdir("Test Directory");
+    return (status == 0);
+}
+
+//Tests that error is returned for invalid directory creation
+bool myMkdirTest2() {
+    int status = mymkdir(NULL, O_RDONLY);
+    return (status < 0);
+}
+
+//Tests that empty directory can be successfully deleted
+bool myRmdirTest1() {
+    mymkdir("Test Directory", O_RDONLY);
+    int status = myrmdir("Test Directory");
+    return (status == 0);
+}
+
+//Tests that non-empty directory cannot be deleted
+bool myRmdirTest2() {
+    //Gives permissiosn in order to be able to delete file
+    mymkdir("TestDirectory", 0775);
+    int fd = myCreat("TestDirectory/NewFile.txt", O_RDONLY);
+    myClose(fd);
+    int status = myrmdir("TestDirectory");
+
+    //Clean up
+    myUnlink("TestDirectory/NewFile.txt");
+    myrmdir("TestDirectory");
+
+    return (status < 0);
+}
+
+//Tests that correct file permissions are identified for a file
+bool getFilePermTest() {
+    struct stat meta_data;
+    char permissions[NUM_PERMISSIONS + 1] = "rwxrwxr-x";
+    char buf[BUF_SIZE];
+
+    /*Creates file with permissions "rwxrwxr-x", cannot assign full permissions
+    without umask syscall*/
+    int fd = myCreat("Test.txt", 0775);
+    myClose(fd);
+    myStat("Test.txt", &meta_data);
+    getFilePerm(meta_data, buf);
+
+    //Cleans up test file
+    myUnlink("Test.txt");
+
+    return strEqual(permissions, buf);
+}
+
+//Tests that "-" is returned for a file.
+bool getDirCharTest1() {
+    char buf[BUF_SIZE];
+    struct stat meta_data;
+    int fd = myCreat("Test.txt", O_RDWR);
+    myClose(fd);
+
+    myStat("Test.txt", &meta_data);
+    getDirChar(meta_data, buf);
+
+    myUnlink("Test.txt");
+
+    return (strEqual(buf, "-"));
+}
+
+//Tests that "d" is returned for a directory
+bool getDirCharTest2() {
+    char buf[BUF_SIZE];
+    struct stat meta_data;
+    myStat(".", &meta_data);
+    getDirChar(meta_data, buf);
+
+    return (strEqual(buf, "d"));
 }
