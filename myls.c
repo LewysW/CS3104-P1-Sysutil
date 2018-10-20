@@ -16,8 +16,10 @@
 #define OPEN_SYSCALL 2
 #define GETDENTS_SYSCALL 78
 #define TIME_SYSCALL 201
-#define CREAT_SYSCALL 85
 #define CLOSE_SYSCALL 3
+
+//Defines system call numbers used for unit tests
+#define CREAT_SYSCALL 85
 #define UNLINK_SYSCALL 87
 #define RMDIR_SYSCALL 84
 #define MKDIR_SYSCALL 83
@@ -58,7 +60,7 @@ static const char *MONTH_STRING[] = {
 #define WHITE   "\033[39m"
 
 //Defines number of tests to be run by test suite
-#define NUM_TESTS 39
+#define NUM_TESTS 43
 
 //Directory entry Struct from getdents man page
 struct linux_dirent {
@@ -110,6 +112,10 @@ void printDirEntries(char* dirName);
 //Functions for unit tests
 int runTests(bool (*testFunctions[]) (), int numTests);
 void initTests(bool (*testFunctions[]) ());
+bool strEqualTest1();
+bool strEqualTest2();
+bool strEqualTest3();
+bool strEqualTest4();
 bool myitoaTest1();
 bool myitoaTest2();
 bool myitoaTest3();
@@ -150,6 +156,13 @@ bool getFilePermTest2();
 bool getDirCharTest1();
 bool getDirCharTest2();
 
+/**
+Main function.
+Decides whether to run program to produce output similar to "ls -n" command
+or if no arguments are specified, runs unit tests.
+@argc - number of arguments
+@argv - list of arguments
+**/
 int main(int argc, char** argv)
 {
     //Struct to store meta data of file specified as argument
@@ -172,12 +185,15 @@ int main(int argc, char** argv)
             //Otherwise write data about that file
             } else {
                 printMetaData(meta_data);
+                myWrite(" ");
+                myWrite(fileName);
                 myWrite("\n");
             }
         //Otherwise write error message to user
         } else {
             writeErrorMsg(fileName);
         }
+    //If no arguments are specified then run unit tests
     } else if (argc == 1) {
         //Creates list of bool functions to store test functions
         bool (*unitTests[NUM_TESTS]) ();
@@ -568,9 +584,7 @@ void printDirEntries(char* dirName) {
 
             }
         }
-
         myClose(fd);
-
     }
 }
 
@@ -762,45 +776,69 @@ Initialises the array of tests to be run with the address of each unit test func
 @testFunctions - list of test functions to be called
 **/
 void initTests(bool (*testFunctions[]) ()) {
-    testFunctions[0] = myitoaTest1;
-    testFunctions[1] = myitoaTest2;
-    testFunctions[2] = myitoaTest3;
-    testFunctions[3] = myitoaTest4;
-    testFunctions[4] = myStrCpyTest1;
-    testFunctions[5] = myStrCpyTest2;
-    testFunctions[6] = myStrCpyTest3;
-    testFunctions[7] = myStrCpyTest4;
-    testFunctions[8] = myStrLenTest1;
-    testFunctions[9] = myStrLenTest2;
-    testFunctions[10] = myStrLenTest3;
-    testFunctions[11] = monthToStrTest1;
-    testFunctions[12] = monthToStrTest2;
-    testFunctions[13] = monthToStrTest3;
-    testFunctions[14] = myStatTest1;
-    testFunctions[15] = myStatTest2;
-    testFunctions[16] = myStatTest3;
-    testFunctions[17] = myOpenTest1;
-    testFunctions[18] = myOpenTest2;
-    testFunctions[19] = myCloseTest1;
-    testFunctions[20] = myCloseTest2;
-    testFunctions[21] = myGetDentsTest1;
-    testFunctions[22] = myGetDentsTest2;
-    testFunctions[23] = myWriteTest1;
-    testFunctions[24] = myWriteTest2;
-    testFunctions[25] = myWriteTest3;
-    testFunctions[26] = myTimeTest;
-    testFunctions[27] = myCreatTest1;
-    testFunctions[28] = myCreatTest2;
-    testFunctions[29] = myUnlinkTest1;
-    testFunctions[30] = myUnlinkTest2;
-    testFunctions[31] = myMkdirTest1;
-    testFunctions[32] = myMkdirTest2;
-    testFunctions[33] = myRmdirTest1;
-    testFunctions[34] = myRmdirTest2;
-    testFunctions[35] = getFilePermTest1;
-    testFunctions[36] = getFilePermTest1;
-    testFunctions[37] = getDirCharTest1;
-    testFunctions[38] = getDirCharTest2;
+    testFunctions[0] = strEqualTest1;
+    testFunctions[1] = strEqualTest2;
+    testFunctions[2] = strEqualTest3;
+    testFunctions[3] = strEqualTest4;
+    testFunctions[4] = myitoaTest1;
+    testFunctions[5] = myitoaTest2;
+    testFunctions[6] = myitoaTest3;
+    testFunctions[7] = myitoaTest4;
+    testFunctions[8] = myStrCpyTest1;
+    testFunctions[9] = myStrCpyTest2;
+    testFunctions[10] = myStrCpyTest3;
+    testFunctions[11] = myStrCpyTest4;
+    testFunctions[12] = myStrLenTest1;
+    testFunctions[13] = myStrLenTest2;
+    testFunctions[14] = myStrLenTest3;
+    testFunctions[15] = monthToStrTest1;
+    testFunctions[16] = monthToStrTest2;
+    testFunctions[17] = monthToStrTest3;
+    testFunctions[18] = myStatTest1;
+    testFunctions[19] = myStatTest2;
+    testFunctions[20] = myStatTest3;
+    testFunctions[21] = myOpenTest1;
+    testFunctions[22] = myOpenTest2;
+    testFunctions[23] = myCloseTest1;
+    testFunctions[24] = myCloseTest2;
+    testFunctions[25] = myGetDentsTest1;
+    testFunctions[26] = myGetDentsTest2;
+    testFunctions[27] = myWriteTest1;
+    testFunctions[28] = myWriteTest2;
+    testFunctions[29] = myWriteTest3;
+    testFunctions[30] = myTimeTest;
+    testFunctions[31] = myCreatTest1;
+    testFunctions[32] = myCreatTest2;
+    testFunctions[33] = myUnlinkTest1;
+    testFunctions[34] = myUnlinkTest2;
+    testFunctions[35] = myMkdirTest1;
+    testFunctions[36] = myMkdirTest2;
+    testFunctions[37] = myRmdirTest1;
+    testFunctions[38] = myRmdirTest2;
+    testFunctions[39] = getFilePermTest1;
+    testFunctions[40] = getFilePermTest1;
+    testFunctions[41] = getDirCharTest1;
+    testFunctions[42] = getDirCharTest2;
+}
+
+//Tests that strEqual returns true if two strings are equal
+bool strEqualTest1() {
+    return (strEqual("String", "String"));
+}
+
+//Tests that strEqual returns false if two strings of different lengths are unequal
+bool strEqualTest2() {
+    return (!strEqual("String", "Not String"));
+}
+
+//Tests that strEqual returns false if two strings of the same length are unequal
+bool strEqualTest3() {
+    return (!strEqual("String", "Hello!"));
+}
+
+//Test that strEqual returns true if provided with two NULL strings
+bool strEqualTest4() {
+    return (strEqual(NULL, NULL));
 }
 
 //Tests that myitoa returns string representation of 0
