@@ -58,7 +58,7 @@ static const char *MONTH_STRING[] = {
 #define WHITE   "\033[39m"
 
 //Defines number of tests to be run by test suite
-#define NUM_TESTS 38
+#define NUM_TESTS 39
 
 //Directory entry Struct from getdents man page
 struct linux_dirent {
@@ -145,7 +145,8 @@ bool myMkdirTest1();
 bool myMkdirTest2();
 bool myRmdirTest1();
 bool myRmdirTest2();
-bool getFilePermTest();
+bool getFilePermTest1();
+bool getFilePermTest2();
 bool getDirCharTest1();
 bool getDirCharTest2();
 
@@ -796,9 +797,10 @@ void initTests(bool (*testFunctions[]) ()) {
     testFunctions[32] = myMkdirTest2;
     testFunctions[33] = myRmdirTest1;
     testFunctions[34] = myRmdirTest2;
-    testFunctions[35] = getFilePermTest;
-    testFunctions[36] = getDirCharTest1;
-    testFunctions[37] = getDirCharTest2;
+    testFunctions[35] = getFilePermTest1;
+    testFunctions[36] = getFilePermTest1;
+    testFunctions[37] = getDirCharTest1;
+    testFunctions[38] = getDirCharTest2;
 }
 
 //Tests that myitoa returns string representation of 0
@@ -1053,7 +1055,7 @@ bool myRmdirTest2() {
 }
 
 //Tests that correct file permissions are identified for a file
-bool getFilePermTest() {
+bool getFilePermTest1() {
     struct stat meta_data;
     char permissions[NUM_PERMISSIONS + 1] = "rwxrwxr-x";
     char buf[BUF_SIZE];
@@ -1061,6 +1063,24 @@ bool getFilePermTest() {
     /*Creates file with permissions "rwxrwxr-x", cannot assign full permissions
     without umask syscall*/
     int fd = myCreat("Test.txt", 0775);
+    myClose(fd);
+    myStat("Test.txt", &meta_data);
+    getFilePerm(meta_data, buf);
+
+    //Cleans up test file
+    myUnlink("Test.txt");
+
+    return strEqual(permissions, buf);
+}
+
+//Tests that correct file permissions are identified for a file with only user permissions
+bool getFilePermTest2() {
+    struct stat meta_data;
+    char permissions[NUM_PERMISSIONS + 1] = "rwx------";
+    char buf[BUF_SIZE];
+
+    //Creates file with permissions "rwx------"
+    int fd = myCreat("Test.txt", 0700);
     myClose(fd);
     myStat("Test.txt", &meta_data);
     getFilePerm(meta_data, buf);
