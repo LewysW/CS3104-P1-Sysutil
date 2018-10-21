@@ -622,7 +622,8 @@ void getDirChar(struct stat meta_data, char* dir) {
 }
 
 //BEGIN CITATION: Learned how to use the masks from this page
-//- https://stackoverflow.com/questions/8812959/how-to-read-linux-file-permission-programmatically-in-c-c
+//-
+
 /**
 Gets read, write and execute permissions of file for user, group and others
 @meta_data - meta data of file
