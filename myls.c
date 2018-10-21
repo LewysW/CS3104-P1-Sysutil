@@ -5,9 +5,7 @@
 #include <fcntl.h>
 #include <time.h>
 #include <dirent.h>
-#include <sys/syscall.h>
 #include <stdbool.h>
-
 
 // A complete list of linux system call numbers can be found in: /usr/include/asm/unistd_64.h
 //Defines system call numbers for system calls used in the solution
@@ -176,14 +174,13 @@ int main(int argc, char** argv)
         char fileName[BUF_SIZE];
         myStrCpy(fileName, argv[1], size);
         int status = myStat(fileName, &meta_data);
-
         //If myStat returned successfully then check if file is directory or not
-        if (!status) {
+        if (status == 0) {
             //If file is a directory, then write data about all files in that directory
             if (S_ISDIR(meta_data.st_mode)) {
                 printDirEntries(fileName);
-            //Otherwise write data about that file
             } else {
+            //Otherwise write data about that file (removing any preceding path)
                 printMetaData(meta_data);
                 myWrite(" ");
                 myWrite(fileName);
