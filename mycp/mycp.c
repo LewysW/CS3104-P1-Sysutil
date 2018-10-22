@@ -6,6 +6,7 @@
 #include <time.h>
 #include <dirent.h>
 #include <stdbool.h>
+#include <errno.h>
 
 // A complete list of linux system call numbers can be found in: /usr/include/asm/unistd_64.h
 //Defines system call numbers for system calls used in the solution
@@ -13,16 +14,19 @@
 #define WRITE_SYSCALL 1
 #define STAT_SYSCALL 4
 #define OPEN_SYSCALL 2
-#define GETDENTS_SYSCALL 78
-#define TIME_SYSCALL 201
 #define CLOSE_SYSCALL 3
 #define CREAT_SYSCALL 85
 #define UNLINK_SYSCALL 87
 #define RMDIR_SYSCALL 84
 #define MKDIR_SYSCALL 83
+#define TRUNCATE_SYSCALL 76
 
-//Reasonable block size to read in file
-#define BUF_SIZE 256
+/*Maximum directory name size in linux + length of error message. Used to
+store path argument for files/directories as well as error message if path does
+not exist*/
+#define BUF_SIZE 4145
+
+#define BLOCK_SIZE 4096
 
 /*Maximum number of digits used to represent a standard integer is 10. Used to define
 a char[] buffer that is used to store a string representation of an integer*/
@@ -32,35 +36,54 @@ a char[] buffer that is used to store a string representation of an integer*/
 number to the ASCII code of that number.*/
 #define ASCII_CONVERSION_INT 48
 
+//std streams
+#define stdout 1
+#define stderr 2
+
 //Defines red and green character codes for test output
 #define RED     "\033[31m"
 #define GREEN   "\033[32m"
 #define WHITE   "\033[39m"
 
 //Defines number of tests to be run by test suite
-#define NUM_TESTS 41
+#define NUM_TESTS 33
+
+//Defines error flags for writeErrorMsg
+#define ERRSTAT -1
+#define ERRREC -2
+#define ERRDIR -3
+#define ERRDEST -4
 
 //Headers for system call wrapper functions containing inline assembly
 int myStat(char* fileName, struct stat* meta_data);
-int myWrite(char* str);
-int myGetDents(long fd, char* buf, unsigned long bufferSize);
+int myWrite(int fd, const void* buf, size_t count);
 int myOpen(char* fileName, mode_t mode);
 int myClose(long fd);
-time_t myTime(time_t* tloc);
 int myCreat(const char* pathname, mode_t mode);
 int myUnlink(const char* pathname);
 int myrmdir(const char* pathname);
 int mymkdir(const char* pathname, mode_t mode);
 int myRead(int fd, void* buf, size_t count);
+int myTruncate(const char* path, off_t length);
 
 //Custom implementations of useful string functions
 int myStrLen(char* str);
 void myStrCpy(char* dest, const char* src, size_t n);
 bool strEqual(char* str1, char* str2);
 void myitoa(unsigned int num, char* str);
+void myPrint(char* str);
 
-//Writes error message to stdout if stat fails on a filename
-void writeErrorMsg();
+//Gets character representing type of file
+void getDirChar(struct stat meta_data, char* dir);
+
+//Writes error message to stdout if mycp fails
+void writeErrorMsg(char* fileName, int flag);
+
+//Carries out cp operation
+void mycp(char* dest, char* src);
+
+//Performs operation of writing data to file
+void writeToFile(int dest, int src);
 
 //Functions for unit tests
 int runTests(bool (*testFunctions[]) (), int numTests);
@@ -87,12 +110,9 @@ bool myOpenTest1();
 bool myOpenTest2();
 bool myCloseTest1();
 bool myCloseTest2();
-bool myGetDentsTest1();
-bool myGetDentsTest2();
 bool myWriteTest1();
 bool myWriteTest2();
 bool myWriteTest3();
-bool myTimeTest();
 bool myCreatTest1();
 bool myCreatTest2();
 bool myUnlinkTest1();
@@ -101,11 +121,6 @@ bool myMkdirTest1();
 bool myMkdirTest2();
 bool myRmdirTest1();
 bool myRmdirTest2();
-bool getDirCharTest1();
-bool getDirCharTest2();
-bool myReadTest1();
-bool myReadTest2();
-bool myReadTest3();
 
 /**
 Main function.
@@ -117,42 +132,106 @@ or if no arguments are specified, runs unit tests.
 int main(int argc, char** argv)
 {
 
-    if (argc == 3) {
-        myWrite("Correct number of args\n");
+    if (argc >= 3) {
+        //Struct to store meta data of file specified as argument
+        struct stat meta_data;
+
+        //Checks if final argument is directory for multiple file copying
+        if (argc > 3) {
+            if (!myStat(argv[argc - 1], &meta_data)) {
+                if (!S_ISDIR(meta_data.st_mode)) {
+                    writeErrorMsg(argv[argc - 1], ERRDIR);
+                    return ERRDIR;
+                }
+            } else {
+                writeErrorMsg(argv[argc - 1], ERRSTAT);
+                return ERRSTAT;
+            }
+        }
+
+        //Iterates over each file and checks for error, otherwise copies
+        for (int i = 1; i < argc - 1; i++) {
+            int status = myStat(argv[i], &meta_data);
+
+            //If myStat failed write error
+            if (status != 0) {
+                writeErrorMsg(argv[i], ERRSTAT);
+            } else {
+                //Otherwise if file is directory, tell user that -r is not enabled
+                if (S_ISDIR(meta_data.st_mode)) {
+                    writeErrorMsg(argv[i], ERRREC);
+                //Otherwise copy file
+                } else {
+                    mycp(argv[argc - 1], argv[i]);
+                }
+            }
+        }
+    //If single file argument, write error to user
+    } else if (argc == 2) {
+        writeErrorMsg(argv[1], ERRDEST);
+    //If one argument, run unit tests
     } else if (argc == 1) {
         //Creates list of bool functions to store test functions
         bool (*unitTests[NUM_TESTS]) ();
         initTests(unitTests);
         runTests(unitTests, NUM_TESTS);
-    } else {
-        writeErrorMsg();
     }
 
     return 0;
 }
 
 /**
-Custom wrapper function for getdents system call using inline assembly
-@fd - file descriptor of file to get directory entries
-@buf - buffer to store directory entry data in
-@bufferSize - size of buffer
-@return - number of bytes read
+Copies source file to destination file/directory
+@dest - destination to copy to
+@src - source to be copied
 **/
-int myGetDents(long fd, char* buf, unsigned long bufferSize) {
-    long ret = -1;
+void mycp(char* dest, char* src) {
+    int destFd;
+    struct stat dest_meta_data;
+    struct stat src_meta_data;
+    myStat(dest, &dest_meta_data);
+    myStat(dest, &src_meta_data);
 
-    asm( "movq %1, %%rax\n\t"
-         "movq %2, %%rdi\n\t"
-         "movq %3, %%rsi\n\t"
-         "movq %4, %%rdx\n\t"
-         "syscall\n\t"
-         "movq %%rax, %0\n\t" :
-         "=r"(ret) :
-         "r"((long)GETDENTS_SYSCALL), "r"(fd), "r"(buf), "r"(bufferSize) :
-         "%rax","%rdi", "%rsi", "%rdx", "memory" );
+    //If destination is a file
+    if (S_ISREG(dest_meta_data.st_mode)) {
+        //Truncate file to size 0 and open destination for writing
+        myTruncate(dest, 0);
+        destFd = myOpen(dest, O_RDWR);
 
-    return ret;
+    //Otherwise if destination is directory
+    } else if (S_ISDIR(dest_meta_data.st_mode)) {
+        //Create path of new file relative to directory path
+        char buf[BUF_SIZE];
+        myStrCpy(buf, dest, myStrLen(dest));
+        myStrCpy(buf + myStrLen(dest), "/", 1);
+        myStrCpy(buf + myStrLen(dest) + 1, src, myStrLen(src));
+
+        //And create file with name of old file and the same permissions
+        destFd = myCreat(buf, src_meta_data.st_mode);
+    }
+
+    //Open source file for reading
+    int srcFd = myOpen(src, O_RDONLY);
+
+    //Write data from source file to destination file if any
+    if (src_meta_data.st_size > 0) writeToFile(destFd, srcFd);
+
+    myClose(destFd);
+    myClose(srcFd);
 }
+
+/**
+Writes data from src to dest
+@dest - fd of destination file
+@src - fd of source file
+**/
+void writeToFile(int dest, int src) {
+    int bytesRead;
+    char buf[BLOCK_SIZE];
+    while ((bytesRead = myRead(src, buf, BLOCK_SIZE)) != 0) myWrite(dest, buf, bytesRead);
+}
+
+
 
 /**
 Custom wrapper function for stat system call using inline assembly
@@ -217,14 +296,11 @@ int myClose(long fd) {
 
 /**
 Custom wrapper function for write system call using inline assembly
-Has been simplified to allow for easy printing
-@str - string to be written to stdout
+@fd - stream to write to
+@buf - to write from
+@count - size to write
 **/
-int myWrite(char* str) {
-    //Length of string to be printed
-    size_t len = myStrLen(str);
-    //Handle is 1 for stdout
-    long handle = 1;
+int myWrite(int fd, const void* buf, size_t count) {
     long ret = -1;
 
     asm( "movq %1, %%rax\n\t"
@@ -234,27 +310,8 @@ int myWrite(char* str) {
          "syscall\n\t"
          "movq %%rax, %0\n\t" :
          "=r"(ret) :
-         "r"((long)WRITE_SYSCALL),"r"(handle), "r"(str), "r"(len) :
+         "r"((long)WRITE_SYSCALL),"r"((long)fd), "r"(buf), "r"(count) :
          "%rax","%rdi","%rsi","%rdx","memory" );
-
-    return ret;
-}
-
-/**
-Custom wrapper function for time system call using inline assembly
-@tloc - location to store time in seconds since Epoch if not NULL
-@return - time in seconds since Epoch
-**/
-time_t myTime(time_t* tloc) {
-    long ret = -1;
-
-    asm( "movq %1, %%rax\n\t"
-         "movq %2, %%rdi\n\t"
-         "syscall\n\t"
-         "movq %%rax, %0\n\t" :
-         "=r"(ret) :
-         "r"((long)TIME_SYSCALL),"r"(tloc) :
-         "%rax","%rdi","memory" );
 
     return ret;
 }
@@ -361,6 +418,26 @@ int myRead(int fd, void* buf, size_t count) {
 }
 
 /**
+Custom wrapper function for truncate system call using inline assembly
+@path - path of file to truncate
+@length - length to truncate file to
+**/
+int myTruncate(const char* path, off_t length) {
+    long ret = -1;
+
+    asm( "movq %1, %%rax\n\t"
+         "movq %2, %%rdi\n\t"
+         "movq %3, %%rsi\n\t"
+         "syscall\n\t"
+         "movq %%rax, %0\n\t" :
+         "=r"(ret) :
+         "r"((long)TRUNCATE_SYSCALL), "r"(path), "r"((long)length) :
+         "%rax","%rdi", "%rsi","memory" );
+
+    return ret;
+}
+
+/**
 Custom implementation of strlen function
 @str - string to get the length of
 @return - length of string not including '\0'
@@ -444,17 +521,6 @@ void myitoa(unsigned int num, char* str) {
 }
 
 /**
- Prints cp error message
-**/
-void writeErrorMsg() {
-    //Prints error message using myWrite
-    myWrite("cp error\n");
-}
-
-//Returns a particular character depending on whether a file is a directory or not.
-//Takes a stat struct as a parameter
-
-/**
 Gets character signifying whether a file is a directory or not
 @meta_data - meta data of file
 @dir - character array to store directory character
@@ -462,6 +528,40 @@ Gets character signifying whether a file is a directory or not
 void getDirChar(struct stat meta_data, char* dir) {
     dir[0] = S_ISDIR(meta_data.st_mode) ? 'd' : '-';
     dir[1] = '\0';
+}
+
+/**
+Convenient wrapper for myWrite that prints to stdout
+@str - string to print to stdout
+**/
+void myPrint(char* str) {
+    myWrite(stdout, str, myStrLen(str));
+}
+
+/**
+ Prints cp error message
+ @fileName - file name which causes error
+ @flag - type of error
+**/
+void writeErrorMsg(char* fileName, int flag) {
+    if (flag == ERRSTAT)  {
+        myPrint("mycp: cannot stat '");
+        myPrint(fileName);
+        myPrint("' No such file or directory");
+        myPrint("\n");
+    } else if (flag == ERRREC) {
+        myPrint("mycp: -r not specified; omitting directory '");
+        myPrint(fileName);
+        myPrint("'\n");
+    } else if (flag == ERRDEST) {
+        myPrint("mycp: missing destination file operand after '");
+        myPrint(fileName);
+        myPrint("'\n");
+    } else if (flag == ERRDIR) {
+        myPrint("mycp: target '");
+        myPrint(fileName);
+        myPrint("' is not a directory\n");
+    }
 }
 
 
@@ -483,30 +583,30 @@ int runTests(bool (*testFunctions[]) (), int numTests) {
     for (i = 0; i < numTests; i++) {
         if ((*testFunctions[i]) ()) {
             numPassingTests += 1;
-            myWrite(GREEN);
-            myWrite("\n***TEST ");
+            myPrint(GREEN);
+            myPrint("\n***TEST ");
             myitoa(i + 1, printBuf);
-            myWrite(printBuf);
-            myWrite(" PASSED***\n");
+            myPrint(printBuf);
+            myPrint(" PASSED***\n");
         } else {
-            myWrite(RED);
-            myWrite("\n***TEST ");
+            myPrint(RED);
+            myPrint("\n***TEST ");
             myitoa(i + 1, printBuf);
-            myWrite(printBuf);
-            myWrite(" FAILED***\n");
+            myPrint(printBuf);
+            myPrint(" FAILED***\n");
         }
     }
 
     //Displays total number of unit tests which have passed
-    myWrite("\n***");
+    myPrint("\n***");
     (numPassingTests > 0) ? myitoa(numPassingTests, printBuf) : myStrCpy(printBuf, "0", 1);
-    myWrite(printBuf);
-    myWrite("/");
+    myPrint(printBuf);
+    myPrint("/");
     myitoa(i, printBuf);
-    myWrite(printBuf);
-    myWrite(" TESTS PASSED***\n");
+    myPrint(printBuf);
+    myPrint(" TESTS PASSED***\n");
 
-    myWrite(WHITE);
+    myPrint(WHITE);
     return numPassingTests;
 }
 
@@ -537,25 +637,17 @@ void initTests(bool (*testFunctions[]) ()) {
     testFunctions[19] = myOpenTest2;
     testFunctions[20] = myCloseTest1;
     testFunctions[21] = myCloseTest2;
-    testFunctions[22] = myGetDentsTest1;
-    testFunctions[23] = myGetDentsTest2;
-    testFunctions[24] = myWriteTest1;
-    testFunctions[25] = myWriteTest2;
-    testFunctions[26] = myWriteTest3;
-    testFunctions[27] = myTimeTest;
-    testFunctions[28] = myCreatTest1;
-    testFunctions[29] = myCreatTest2;
-    testFunctions[30] = myUnlinkTest1;
-    testFunctions[31] = myUnlinkTest2;
-    testFunctions[32] = myMkdirTest1;
-    testFunctions[33] = myMkdirTest2;
-    testFunctions[34] = myRmdirTest1;
-    testFunctions[35] = myRmdirTest2;
-    testFunctions[36] = getDirCharTest1;
-    testFunctions[37] = getDirCharTest2;
-    testFunctions[38] = myReadTest1;
-    testFunctions[39] = myReadTest2;
-    testFunctions[40] = myReadTest3;
+    testFunctions[22] = myWriteTest1;
+    testFunctions[23] = myWriteTest2;
+    testFunctions[24] = myWriteTest3;
+    testFunctions[25] = myCreatTest1;
+    testFunctions[26] = myCreatTest2;
+    testFunctions[27] = myUnlinkTest1;
+    testFunctions[28] = myUnlinkTest2;
+    testFunctions[29] = myMkdirTest1;
+    testFunctions[30] = myMkdirTest2;
+    testFunctions[31] = myRmdirTest1;
+    testFunctions[32] = myRmdirTest2;
 }
 
 //Tests that strEqual returns true if two strings are equal
@@ -705,46 +797,25 @@ bool myCloseTest2() {
     return (status != 0);
 }
 
-//Tests that positive number of bytes is read for current directory
-bool myGetDentsTest1() {
-    int fd = myOpen(".", O_RDONLY);
-    char buf[BUF_SIZE];
-    int bytesRead = myGetDents(fd, buf, BUF_SIZE);
-    return (bytesRead > 0);
-}
-
-//Tests that error code is returned for non existent directory
-bool myGetDentsTest2() {
-    int fd = myOpen("Not a directory", O_RDONLY);
-    char buf[BUF_SIZE];
-    int bytesRead = myGetDents(fd, buf, BUF_SIZE);
-    return (bytesRead < 0);
-}
-
 //Tests that zero bytes are written for empty string
 bool myWriteTest1() {
     char buf[BUF_SIZE] = "";
-    int bytesWritten = myWrite(buf);
+    int bytesWritten = myWrite(stdout, buf, myStrLen(buf));
     return (bytesWritten == 0);
 }
 
 //Tests that valid positive number of bytes are written for string
 bool myWriteTest2() {
     char buf[BUF_SIZE] = "\n~/Documents/CS3104/practicals/CS3104-P1-Sysutil\n";
-    int bytesWritten = myWrite(buf);
+    int bytesWritten = myWrite(stdout, buf, myStrLen(buf));
     return (bytesWritten == myStrLen(buf));
 }
 
 //Tests that error code is returned when trying to write NULL string
 bool myWriteTest3() {
     char* buf = NULL;
-    int bytesWritten = myWrite(buf);
+    int bytesWritten = myWrite(stdout, buf, myStrLen(buf));
     return (bytesWritten < 0);
-}
-
-//Tests that positive number of seconds are returned since Epoch
-bool myTimeTest() {
-    return (myTime(NULL) > 0);
 }
 
 //Tests that new file can be created successfully
@@ -806,71 +877,4 @@ bool myRmdirTest2() {
     myrmdir("TestDirectory");
 
     return (status < 0);
-}
-
-//Tests that "-" is returned for a file.
-bool getDirCharTest1() {
-    char buf[BUF_SIZE];
-    struct stat meta_data;
-    int fd = myCreat("Test.txt", O_RDWR);
-    myClose(fd);
-
-    myStat("Test.txt", &meta_data);
-    getDirChar(meta_data, buf);
-
-    myUnlink("Test.txt");
-
-    return (strEqual(buf, "-"));
-}
-
-//Tests that "d" is returned for a directory
-bool getDirCharTest2() {
-    char buf[BUF_SIZE];
-    struct stat meta_data;
-    myStat(".", &meta_data);
-    getDirChar(meta_data, buf);
-
-    return (strEqual(buf, "d"));
-}
-
-//Tests that valid file descriptor can be read correctly
-bool myReadTest1() {
-    int fd = myCreat("Test.txt", O_RDONLY);
-    int bytesRead = -1;
-    int totalBytes = 0;
-    char buf[BUF_SIZE];
-
-    while ((bytesRead = myRead(fd, &buf, BUF_SIZE)) > 0) {
-        printf("%d\n", bytesRead);
-        totalBytes += bytesRead;
-    }
-    myClose(fd);
-    myUnlink("Test.txt");
-    return (totalBytes > 0);
-}
-
-//Tests that invalid file descriptor cannot be read and error is returned
-bool myReadTest2() {
-    int bytesRead = -1;
-    int totalBytes = 0;
-    char buf[BUF_SIZE];
-    int fd = -1;
-
-    while ((bytesRead = myRead(fd, &buf, BUF_SIZE)) > 0) totalBytes += bytesRead;
-
-    return (bytesRead < 0);
-}
-
-//Tests that invalid NULL buffer cannot be used and error is returned
-bool myReadTest3() {
-    int fd = myCreat("Test.txt", O_RDONLY);
-    int bytesRead = -1;
-    int totalBytes = 0;
-    char* buf = NULL;
-
-    while ((bytesRead = myRead(fd, &buf, BUF_SIZE)) > 0) totalBytes += bytesRead;
-
-    myClose(fd);
-    myUnlink("Test.txt");
-    return (bytesRead < 0);
 }
