@@ -53,6 +53,7 @@ number to the ASCII code of that number.*/
 #define ERRREC -2
 #define ERRDIR -3
 #define ERRDEST -4
+#define ERRPERM -13
 
 //Headers for system call wrapper functions containing inline assembly
 int myStat(char* fileName, struct stat* meta_data);
@@ -212,6 +213,8 @@ void mycp(char* dest, char* src) {
 
     //Open source file for reading
     int srcFd = myOpen(src, O_RDONLY);
+
+    if (srcFd < 0) writeErrorMsg(src, srcFd);
 
     //Write data from source file to destination file if any
     if (src_meta_data.st_size > 0) writeToFile(destFd, srcFd);
@@ -561,6 +564,10 @@ void writeErrorMsg(char* fileName, int flag) {
         myPrint("mycp: target '");
         myPrint(fileName);
         myPrint("' is not a directory\n");
+    } else if (flag == ERRPERM) {
+        myPrint("mycp: cannot open '");
+        myPrint(fileName);
+        myPrint("' for reading: Permission denied\n");
     }
 }
 
